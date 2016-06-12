@@ -31,46 +31,46 @@ public final class Shiv {
     private static final Map<Class<?>, Set<Class<?>>> mFlattenHierarchyCache = new HashMap<>();
 
     @NonNull
-    private static final Map<Class<?>, ViewBinder> mViewBinderCache = new HashMap<>();
+    private static final Map<Class<?>, Binder> mBinderCache = new HashMap<>();
 
 
     @SuppressWarnings("unused")
-    public static void bind(@NonNull Object object) {
+    public static void bindViews(@NonNull Object object) {
         enforceMainThread();
 
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            bind(object, type);
+            bindViews(object, type);
         }
     }
 
-    private static void bind(@NonNull Object object, @NonNull Class objectClass) {
-        ViewBinder viewBinder = findViewBinderForClass(objectClass);
-        if (viewBinder != null) {
-            viewBinder.bind(object);
+    private static void bindViews(@NonNull Object object, @NonNull Class objectClass) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.bindViews(object);
         }
     }
 
     @SuppressWarnings("unused")
-    public static void unbind(@NonNull Object object) {
+    public static void unbindViews(@NonNull Object object) {
         enforceMainThread();
 
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            unbind(object, type);
+            unbindViews(object, type);
         }
     }
 
-    private static void unbind(@NonNull Object object, @NonNull Class objectClass) {
-        ViewBinder viewBinder = findViewBinderForClass(objectClass);
-        if (viewBinder != null) {
-            viewBinder.unbind(object);
+    private static void unbindViews(@NonNull Object object, @NonNull Class objectClass) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.unbindViews(object);
         }
     }
 
     private static void enforceMainThread() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            throw new IllegalStateException("View binding must occur on the main thread " + Looper.myLooper());
+            throw new IllegalStateException("Binding must occur on the main thread " + Looper.myLooper());
         }
     }
 
@@ -94,7 +94,7 @@ public final class Shiv {
         while (!parents.isEmpty()) {
             Class<?> clazz = parents.remove(0);
 
-            ViewBinder binder = findViewBinderForClass(clazz);
+            Binder binder = findBinderForClass(clazz);
             if (binder != null) {
                 classes.add(clazz);
             }
@@ -112,26 +112,26 @@ public final class Shiv {
     }
 
     @Nullable
-    private static ViewBinder findViewBinderForClass(@NonNull Class<?> cls) {
-        ViewBinder binder = mViewBinderCache.get(cls);
+    private static Binder findBinderForClass(@NonNull Class<?> cls) {
+        Binder binder = mBinderCache.get(cls);
         if (binder != null) {
-            log("Found cached ViewBinder for %s.", cls);
+            log("Found cached Binder for %s.", cls);
             return binder;
         }
 
         try {
-            Class<?> binderClass = Class.forName(cls.getName() + ViewBinder.CLASS_SUFFIX);
+            Class<?> binderClass = Class.forName(cls.getName() + Binder.CLASS_SUFFIX);
             //noinspection unchecked
-            binder = (ViewBinder) binderClass.newInstance();
-            log("Created ViewBinder for %s.", cls);
+            binder = (Binder) binderClass.newInstance();
+            log("Created Binder for %s.", cls);
         } catch (Exception e) {
-            log("ViewBinder not found for %s.", cls);
+            log("Binder not found for %s.", cls);
             e.printStackTrace();
             binder = null;
         }
 
         if (binder != null) {
-            mViewBinderCache.put(cls, binder);
+            mBinderCache.put(cls, binder);
         }
         return binder;
     }

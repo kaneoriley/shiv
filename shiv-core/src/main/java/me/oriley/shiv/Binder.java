@@ -19,11 +19,19 @@ package me.oriley.shiv;
 import android.support.annotation.NonNull;
 
 @SuppressWarnings({"WeakerAccess", "unused"})
-public abstract class ViewBinder {
+public abstract class Binder {
 
-    static final String CLASS_SUFFIX = "$$ShivViewBinder";
+    static final String CLASS_SUFFIX = "$$ShivBinder";
 
-    public abstract void bind(@NonNull final Object host);
+    public void bindViews(@NonNull final Object host) {
+        // To be overridden
+    }
 
-    public abstract void unbind(@NonNull final Object host);
+    public void unbindViews(@NonNull final Object host) {
+        // To be overridden
+    }
+
+    public void bindExtras(@NonNull final Object host) {
+        // To be overridden
+    }
 }

@@ -34,8 +34,8 @@ public final class ShivProcessor extends BaseProcessor {
     private static final String FRAGMENT_TYPE = "android.app.Fragment";
     private static final String SUPPORT_FRAGMENT_TYPE = "android.support.v4.app.Fragment";
 
-    private static final String BIND = "bind";
-    private static final String UNBIND = "unbind";
+    private static final String BIND_VIEWS = "bindViews";
+    private static final String UNBIND_VIEWS = "unbindViews";
     private static final String OBJECT = "object";
     private static final String FIELD_HOST = "fieldHost";
     private static final String VIEW_HOST = "viewHost";
@@ -80,42 +80,46 @@ public final class ShivProcessor extends BaseProcessor {
 
     @NonNull
     private TypeSpec generateViewBinderFactory(@NonNull TypeElement typeElement,
-                                               @NonNull List<Element> binderFields) throws ShivProcessorException {
+                                               @NonNull List<Element> viewBinderFields) throws ShivProcessorException {
         // Class type
         String packageName = getPackageName(typeElement);
         String className = getClassName(typeElement, packageName);
 
         // Class builder
-        TypeSpec.Builder typeSpecBuilder = TypeSpec.classBuilder(className + ViewBinder.CLASS_SUFFIX)
+        TypeSpec.Builder typeSpecBuilder = TypeSpec.classBuilder(className + Binder.CLASS_SUFFIX)
                 .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
-                .superclass(ViewBinder.class);
+                .superclass(Binder.class);
 
         // Type parameter
         ParameterSpec param = ParameterSpec.builder(TypeName.get(Object.class)
                 .annotated(AnnotationSpec.builder(NonNull.class).build()), OBJECT, Modifier.FINAL)
                 .build();
 
-        // Create bind method
-        MethodSpec bindMethod = MethodSpec.methodBuilder(BIND)
-                .addModifiers(Modifier.PUBLIC)
-                .addAnnotation(Override.class)
-                .addParameter(param)
-                .addCode(generateBindMethod(typeElement, binderFields))
-                .build();
+        if (!viewBinderFields.isEmpty()) {
+            // Create bind method
+            MethodSpec bindMethod = MethodSpec.methodBuilder(BIND_VIEWS)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addCode(generateBindViewMethod(typeElement, viewBinderFields))
+                    .build();
 
-        // Create unbind method
-        MethodSpec unbindMethod = MethodSpec.methodBuilder(UNBIND)
-                .addModifiers(Modifier.PUBLIC)
-                .addAnnotation(Override.class)
-                .addParameter(param)
-                .addCode(generateUnbindMethod(typeElement, binderFields))
-                .build();
+            // Create unbind method
+            MethodSpec unbindMethod = MethodSpec.methodBuilder(UNBIND_VIEWS)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addCode(generateUnbindViewMethod(typeElement, viewBinderFields))
+                    .build();
 
-        return typeSpecBuilder.addMethod(bindMethod).addMethod(unbindMethod).build();
+            typeSpecBuilder.addMethod(bindMethod).addMethod(unbindMethod);
+        }
+
+        return typeSpecBuilder.build();
     }
 
     @NonNull
-    private CodeBlock generateBindMethod(@NonNull TypeElement hostType,
+    private CodeBlock generateBindViewMethod(@NonNull TypeElement hostType,
                                          @NonNull List<Element> binderFields) throws ShivProcessorException {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
@@ -145,7 +149,7 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     @NonNull
-    private CodeBlock generateUnbindMethod(@NonNull TypeElement hostType,
+    private CodeBlock generateUnbindViewMethod(@NonNull TypeElement hostType,
                                            @NonNull List<Element> binderFields) throws ShivProcessorException {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
