@@ -1,0 +1,1 @@
+include ':shiv-runtime', ':shiv-processor', ':shiv-annotations', ':shiv-core'
