@@ -215,7 +215,8 @@ public final class ShivProcessor extends BaseProcessor {
                 builder.add("if ($N == null) {\n", EXTRA)
                         .add("    throw new $T(\"Non-optional extra for $N.$N was not found\");\n", NullPointerException.class,
                                 FIELD_HOST, element.getSimpleName())
-                        .add("}\n");
+                        .add("}\n")
+                        .add("$N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA);
             }
         }
 
