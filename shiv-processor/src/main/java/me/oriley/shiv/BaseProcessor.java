@@ -31,6 +31,7 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
+import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 
 import java.util.List;
@@ -52,12 +53,16 @@ abstract class BaseProcessor extends AbstractProcessor {
     protected Elements mElements;
 
     @NonNull
+    protected Types mTypes;
+
+    @NonNull
     private String mTag = TAG;
 
     @Override
     public synchronized void init(ProcessingEnvironment env) {
         super.init(env);
         mElements = env.getElementUtils();
+        mTypes = env.getTypeUtils();
         mMessager = env.getMessager();
     }
 
@@ -94,6 +99,11 @@ abstract class BaseProcessor extends AbstractProcessor {
 
     protected boolean isNullable(@NonNull Element element) {
         return hasAnnotationWithName(element, NULLABLE);
+    }
+
+    protected boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull String type) {
+        TypeMirror mirror = mElements.getTypeElement(type).asType();
+        return mTypes.isAssignable(typeMirror, mirror);
     }
 
     protected boolean isSubtypeOfType(@NonNull TypeElement element, @NonNull String type) {

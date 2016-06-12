@@ -23,12 +23,19 @@ import javax.annotation.processing.*;
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.util.*;
 
 public final class ShivProcessor extends BaseProcessor {
 
+    private static final String CHAR_SEQUENCE_TYPE = "java.lang.CharSequence";
+    private static final String SERIALIZABLE_TYPE = "java.io.Serializable";
+    private static final String PARCELABLE_TYPE = "android.os.Parcelable";
     private static final String VIEW_TYPE = "android.view.View";
+    private static final ClassName BUNDLE_CLASS = ClassName.get("android.os", "Bundle");
+    private static final ClassName INTENT_CLASS = ClassName.get("android.content", "Intent");
     private static final ClassName VIEW_CLASS = ClassName.get("android.view", "View");
+    private static final ClassName SHIV_CLASS = ClassName.get("me.oriley.shiv", "Shiv");
 
     private static final String ACTIVITY_TYPE = "android.app.Activity";
     private static final String FRAGMENT_TYPE = "android.app.Fragment";
@@ -36,7 +43,11 @@ public final class ShivProcessor extends BaseProcessor {
 
     private static final String BIND_VIEWS = "bindViews";
     private static final String UNBIND_VIEWS = "unbindViews";
+    private static final String BIND_EXTRAS = "bindExtras";
     private static final String OBJECT = "object";
+    private static final String INTENT = "intent";
+    private static final String BUNDLE = "bundle";
+    private static final String EXTRA = "extra";
     private static final String FIELD_HOST = "fieldHost";
     private static final String VIEW_HOST = "viewHost";
 
@@ -54,6 +65,7 @@ public final class ShivProcessor extends BaseProcessor {
     public Set<String> getSupportedAnnotationTypes() {
         Set<String> types = new LinkedHashSet<>();
         types.add(BindView.class.getCanonicalName());
+        types.add(BindExtra.class.getCanonicalName());
         return types;
     }
 
@@ -64,11 +76,13 @@ public final class ShivProcessor extends BaseProcessor {
         }
 
         try {
-            final Map<TypeElement, List<Element>> fieldBindings = collectFields(env);
+            final Map<TypeElement, BindingHolder> bindings = new HashMap<>();
+            collectBindings(env, bindings, BindView.class);
+            collectBindings(env, bindings, BindExtra.class);
 
-            for (TypeElement typeElement : fieldBindings.keySet()) {
+            for (TypeElement typeElement : bindings.keySet()) {
                 String packageName = getPackageName(typeElement);
-                writeToFile(packageName, generateViewBinderFactory(typeElement, fieldBindings.get(typeElement)));
+                writeToFile(packageName, generateBinder(typeElement, bindings.get(typeElement)));
             }
         } catch (ShivProcessorException e) {
             error(e.getMessage());
@@ -79,8 +93,8 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     @NonNull
-    private TypeSpec generateViewBinderFactory(@NonNull TypeElement typeElement,
-                                               @NonNull List<Element> viewBinderFields) throws ShivProcessorException {
+    private TypeSpec generateBinder(@NonNull TypeElement typeElement,
+                                    @NonNull BindingHolder holder) throws ShivProcessorException {
         // Class type
         String packageName = getPackageName(typeElement);
         String className = getClassName(typeElement, packageName);
@@ -95,32 +109,44 @@ public final class ShivProcessor extends BaseProcessor {
                 .annotated(AnnotationSpec.builder(NonNull.class).build()), OBJECT, Modifier.FINAL)
                 .build();
 
-        if (!viewBinderFields.isEmpty()) {
-            // Create bind method
+        if (!holder.viewBindings.isEmpty()) {
+            // Create bindViews method
             MethodSpec bindMethod = MethodSpec.methodBuilder(BIND_VIEWS)
                     .addModifiers(Modifier.PUBLIC)
                     .addAnnotation(Override.class)
                     .addParameter(param)
-                    .addCode(generateBindViewMethod(typeElement, viewBinderFields))
+                    .addCode(generateBindViewsMethod(typeElement, holder.viewBindings))
                     .build();
 
-            // Create unbind method
+            // Create unbindViews method
             MethodSpec unbindMethod = MethodSpec.methodBuilder(UNBIND_VIEWS)
                     .addModifiers(Modifier.PUBLIC)
                     .addAnnotation(Override.class)
                     .addParameter(param)
-                    .addCode(generateUnbindViewMethod(typeElement, viewBinderFields))
+                    .addCode(generateUnbindViewsMethod(typeElement, holder.viewBindings))
                     .build();
 
             typeSpecBuilder.addMethod(bindMethod).addMethod(unbindMethod);
+        }
+
+        if (!holder.extraBindings.isEmpty()) {
+            // Create bindExtras method
+            MethodSpec bindMethod = MethodSpec.methodBuilder(BIND_EXTRAS)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addCode(generateBindExtrasMethod(typeElement, holder.extraBindings))
+                    .build();
+
+            typeSpecBuilder.addMethod(bindMethod);
         }
 
         return typeSpecBuilder.build();
     }
 
     @NonNull
-    private CodeBlock generateBindViewMethod(@NonNull TypeElement hostType,
-                                         @NonNull List<Element> binderFields) throws ShivProcessorException {
+    private CodeBlock generateBindViewsMethod(@NonNull TypeElement hostType,
+                                              @NonNull List<Element> binderFields) throws ShivProcessorException {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
 
@@ -149,8 +175,8 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     @NonNull
-    private CodeBlock generateUnbindViewMethod(@NonNull TypeElement hostType,
-                                           @NonNull List<Element> binderFields) throws ShivProcessorException {
+    private CodeBlock generateUnbindViewsMethod(@NonNull TypeElement hostType,
+                                                @NonNull List<Element> binderFields) throws ShivProcessorException {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
 
@@ -162,13 +188,47 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     @NonNull
-    private Map<TypeElement, List<Element>> collectFields(@NonNull RoundEnvironment env) throws ShivProcessorException {
-        final Map<TypeElement, List<Element>> fieldsByClass = new HashMap<>();
+    private CodeBlock generateBindExtrasMethod(@NonNull TypeElement hostType,
+                                               @NonNull List<Element> binderFields) throws ShivProcessorException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT)
+                .add("$T $N;\n", Object.class, EXTRA);
 
-        for (Element e : env.getElementsAnnotatedWith(BindView.class)) {
+        if (isSubtypeOfType(hostType, ACTIVITY_TYPE)) {
+            builder.add("$T $N = $N.getIntent();\n", INTENT_CLASS, INTENT, FIELD_HOST);
+            builder.add("$T $N = $N != null ? $N.getExtras() : null;\n", BUNDLE_CLASS, BUNDLE, INTENT, INTENT);
+        } else if (isSubtypeOfType(hostType, FRAGMENT_TYPE) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT_TYPE)) {
+            builder.add("$T $N = $N.getArguments();\n", BUNDLE_CLASS, BUNDLE, FIELD_HOST);
+        } else {
+            throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
+        }
+
+        for (Element element : binderFields) {
+            BindExtra bindExtra = element.getAnnotation(BindExtra.class);
+
+            builder.add("$N = $T.getExtra($N, $S);\n", EXTRA, SHIV_CLASS, BUNDLE, bindExtra.value());
+            if (isNullable(element) || bindExtra.optional()) {
+                builder.add("if ($N != null) {\n", EXTRA)
+                        .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)
+                        .add("}\n");
+            } else {
+                builder.add("if ($N == null) {\n", EXTRA)
+                        .add("    throw new $T(\"Non-optional extra for $N.$N was not found\");\n", NullPointerException.class,
+                                FIELD_HOST, element.getSimpleName())
+                        .add("}\n");
+            }
+        }
+
+        return builder.build();
+    }
+
+    private void collectBindings(@NonNull RoundEnvironment env,
+                                 @NonNull Map<TypeElement, BindingHolder> bindings,
+                                 @NonNull Class<? extends Annotation> annotation) throws ShivProcessorException {
+        for (Element e : env.getElementsAnnotatedWith(annotation)) {
             if (e.getKind() != ElementKind.FIELD) {
-                throw new ShivProcessorException(e.getSimpleName() + " is annotated with @" +
-                        BindView.class.getName() + " but is not a field");
+                throw new ShivProcessorException(e.getSimpleName() + " is annotated with @" + annotation.getName() +
+                        " but is not a field");
             }
 
             TypeMirror fieldType = e.asType();
@@ -176,8 +236,10 @@ public final class ShivProcessor extends BaseProcessor {
                 throw new ShivProcessorException("Field must not be private: " + e.getSimpleName());
             }
 
-            if (!isSubtypeOfType(fieldType, VIEW_TYPE)) {
+            if (annotation == BindView.class && !isSubtypeOfType(fieldType, VIEW_TYPE)) {
                 throw new ShivProcessorException("Field must inherit from View type: " + e.getSimpleName());
+            } else if (annotation == BindExtra.class && !isValidExtraField(fieldType)) {
+                throw new ShivProcessorException("Field must be Serializable or Parcelable: " + e.getSimpleName());
             }
 
             final TypeElement type = findEnclosingElement(e);
@@ -198,27 +260,52 @@ public final class ShivProcessor extends BaseProcessor {
                 parentType = findEnclosingElement(parentType);
             }
 
-            List<Element> fieldsInClass = fieldsByClass.get(type);
-            if (fieldsInClass == null) {
-                fieldsInClass = new ArrayList<>();
-                fieldsByClass.put(type, fieldsInClass);
+            BindingHolder bindingHolder = bindings.get(type);
+            if (bindingHolder == null) {
+                bindingHolder = new BindingHolder();
+                bindings.put(type, bindingHolder);
             }
 
-            fieldsInClass.add(e);
+            bindingHolder.addBinding(annotation, e);
         }
+    }
 
-        return fieldsByClass;
+    private boolean isValidExtraField(@NonNull TypeMirror fieldType) {
+        return isAssignable(fieldType, CHAR_SEQUENCE_TYPE) || isAssignable(fieldType, SERIALIZABLE_TYPE) ||
+                isAssignable(fieldType, PARCELABLE_TYPE);
     }
 
     @NonNull
     private JavaFile writeToFile(@NonNull String packageName, @NonNull TypeSpec spec) throws ShivProcessorException {
-        final JavaFile file = JavaFile.builder(packageName, spec).indent("    ").build();
+        final JavaFile file = JavaFile.builder(packageName, spec)
+                .addFileComment("Generated by ShivProcessor, do not edit manually!")
+                .indent("    ").build();
         try {
             file.writeTo(mFiler);
         } catch (IOException e) {
             throw new ShivProcessorException(e);
         }
         return file;
+    }
+
+    @SuppressWarnings("WeakerAccess")
+    static final class BindingHolder{
+
+        @NonNull
+        final List<Element> viewBindings = new ArrayList<>();
+
+        @NonNull
+        final List<Element> extraBindings = new ArrayList<>();
+
+        void addBinding(@NonNull Class<? extends Annotation> annotation, @NonNull Element element) throws ShivProcessorException {
+            if (annotation == BindView.class) {
+                viewBindings.add(element);
+            } else if (annotation == BindExtra.class) {
+                extraBindings.add(element);
+            } else {
+                throw new ShivProcessorException("Invalid annotation: " + annotation);
+            }
+        }
     }
 
     private static final class ShivProcessorException extends Exception {

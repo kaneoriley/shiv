@@ -16,6 +16,7 @@
 
 package me.oriley.shiv;
 
+import android.os.Bundle;
 import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -65,6 +66,23 @@ public final class Shiv {
         Binder binder = findBinderForClass(objectClass);
         if (binder != null) {
             binder.unbindViews(object);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public static void bindExtras(@NonNull Object object) {
+        enforceMainThread();
+
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            bindExtras(object, type);
+        }
+    }
+
+    private static void bindExtras(@NonNull Object object, @NonNull Class objectClass) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.bindExtras(object);
         }
     }
 
@@ -134,6 +152,10 @@ public final class Shiv {
             mBinderCache.put(cls, binder);
         }
         return binder;
+    }
+
+    public static Object getExtra(@Nullable Bundle bundle, @NonNull String key) {
+        return bundle != null ? bundle.get(key) : null;
     }
 
     private static void log(@NonNull String message, @NonNull Object... args) {
