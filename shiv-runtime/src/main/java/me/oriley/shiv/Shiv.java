@@ -20,12 +20,14 @@ import android.os.Bundle;
 import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.util.Log;
 
 import java.util.*;
 
-@SuppressWarnings("unused")
+@SuppressWarnings({"unused", "WeakerAccess"})
 public final class Shiv {
 
+    private static final String TAG = Shiv.class.getSimpleName();
     private static final boolean DEBUG = false;
 
     @NonNull
@@ -221,13 +223,71 @@ public final class Shiv {
         return binder;
     }
 
-    public static Object getExtra(@Nullable Bundle bundle, @NonNull String key) {
-        return bundle != null ? bundle.get(key) : null;
+    private static void log(@NonNull String message, @Nullable Object... args) {
+        if (DEBUG) {
+            if (args != null) {
+                message = String.format(message, args);
+            }
+            Log.d(TAG, message);
+        }
     }
 
-    private static void log(@NonNull String message, @NonNull Object... args) {
-        if (DEBUG) {
-            System.out.println("SHIV -- " + String.format(message, args));
+    @NonNull
+    public static Chainer with(@NonNull Object host) {
+        return new Chainer(host);
+    }
+
+    public static final class Chainer {
+
+        @NonNull
+        private final Object mHost;
+
+
+        Chainer(@NonNull Object host) {
+            mHost = host;
+        }
+
+
+        @NonNull
+        public Chainer bindViews() {
+            Shiv.bindViews(mHost);
+            return this;
+        }
+
+        @NonNull
+        public Chainer unbindViews() {
+            Shiv.unbindViews(mHost);
+            return this;
+        }
+
+        @NonNull
+        public Chainer bindExtras() {
+            Shiv.bindExtras(mHost);
+            return this;
+        }
+
+        @NonNull
+        public Chainer bindPreferences() {
+            Shiv.bindPreferences(mHost);
+            return this;
+        }
+
+        @NonNull
+        public Chainer unbindPreferences() {
+            Shiv.unbindPreferences(mHost);
+            return this;
+        }
+
+        @NonNull
+        public Chainer saveInstance(@Nullable Bundle bundle) {
+            Shiv.saveInstance(mHost, bundle);
+            return this;
+        }
+
+        @NonNull
+        public Chainer restoreInstance(@Nullable Bundle bundle) {
+            Shiv.restoreInstance(mHost, bundle);
+            return this;
         }
     }
 }
