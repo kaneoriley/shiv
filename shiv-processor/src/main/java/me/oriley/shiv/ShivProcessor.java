@@ -16,35 +16,50 @@
 
 package me.oriley.shiv;
 
+import android.app.Activity;
+import android.app.Fragment;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Parcelable;
+import android.preference.Preference;
+import android.preference.PreferenceActivity;
+import android.preference.PreferenceFragment;
 import android.support.annotation.NonNull;
+import android.util.SparseArray;
+import android.view.View;
 import com.squareup.javapoet.*;
 
 import javax.annotation.processing.*;
 import javax.lang.model.element.*;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import java.io.IOException;
+import java.io.Serializable;
 import java.lang.annotation.Annotation;
 import java.util.*;
 
 public final class ShivProcessor extends BaseProcessor {
 
-    private static final String CHAR_SEQUENCE_TYPE = "java.lang.CharSequence";
-    private static final String SERIALIZABLE_TYPE = "java.io.Serializable";
-    private static final String PARCELABLE_TYPE = "android.os.Parcelable";
-    private static final String PREFERENCE_TYPE = "android.preference.Preference";
+    private static final String INTEGER_TYPE = Integer.class.getCanonicalName();
+    private static final String STRING_TYPE = String.class.getCanonicalName();
+    private static final String CHAR_SEQUENCE_TYPE = CharSequence.class.getCanonicalName();
+    private static final String SERIALIZABLE_TYPE = Serializable.class.getCanonicalName();
+    private static final String PARCELABLE_TYPE = Parcelable.class.getCanonicalName();
+    private static final String SPARSE_ARRAY_TYPE = SparseArray.class.getCanonicalName();
+    private static final String ARRAY_LIST_TYPE = ArrayList.class.getCanonicalName();
+    private static final String PREFERENCE_TYPE = Preference.class.getCanonicalName();
     private static final String SUPPORT_PREFERENCE_TYPE = "android.support.v7.preference.Preference";
-    private static final String VIEW_TYPE = "android.view.View";
-    private static final ClassName BUNDLE_CLASS = ClassName.get("android.os", "Bundle");
-    private static final ClassName INTENT_CLASS = ClassName.get("android.content", "Intent");
-    private static final ClassName VIEW_CLASS = ClassName.get("android.view", "View");
-    private static final ClassName SHIV_CLASS = ClassName.get("me.oriley.shiv", "Shiv");
+    private static final String VIEW_TYPE = View.class.getCanonicalName();
 
-    private static final String ACTIVITY_TYPE = "android.app.Activity";
-    private static final String FRAGMENT_TYPE = "android.app.Fragment";
+    private static final String ACTIVITY_TYPE = Activity.class.getCanonicalName();
+    private static final String FRAGMENT_TYPE = Fragment.class.getCanonicalName();
     private static final String SUPPORT_FRAGMENT_TYPE = "android.support.v4.app.Fragment";
+    private static final ClassName BUNDLE_CLASS = ClassName.get(Bundle.class);
+    private static final ClassName INTENT_CLASS = ClassName.get(Intent.class);
+    private static final ClassName VIEW_CLASS = ClassName.get(View.class);
 
-    private static final String PREFERENCE_ACTIVITY_TYPE = "android.preference.PreferenceActivity";
-    private static final String PREFERENCE_FRAGMENT_TYPE = "android.preference.PreferenceFragment";
+    private static final String PREFERENCE_ACTIVITY_TYPE = PreferenceActivity.class.getCanonicalName();
+    private static final String PREFERENCE_FRAGMENT_TYPE = PreferenceFragment.class.getCanonicalName();
     private static final String SUPPORT_PREFERENCE_FRAGMENT_TYPE = "android.support.v7.preference.PreferenceFragmentCompat";
 
     private static final String BIND_VIEWS = "bindViews";
@@ -52,12 +67,15 @@ public final class ShivProcessor extends BaseProcessor {
     private static final String BIND_EXTRAS = "bindExtras";
     private static final String BIND_PREFERENCES = "bindPreferences";
     private static final String UNBIND_PREFERENCES = "unbindPreferences";
+    private static final String SAVE_INSTANCE = "saveInstance";
+    private static final String RESTORE_INSTANCE = "restoreInstance";
     private static final String OBJECT = "object";
     private static final String INTENT = "intent";
     private static final String BUNDLE = "bundle";
     private static final String EXTRA = "extra";
     private static final String FIELD_HOST = "fieldHost";
     private static final String VIEW_HOST = "viewHost";
+    private static final String KEY_INSTANCE_PREFIX = "SHIV_KEY_INSTANCE_";
 
     @NonNull
     private Filer mFiler;
@@ -69,12 +87,10 @@ public final class ShivProcessor extends BaseProcessor {
         setTag(ShivProcessor.class.getSimpleName());
     }
 
+    @NonNull
     @Override
-    public Set<String> getSupportedAnnotationTypes() {
-        Set<String> types = new LinkedHashSet<>();
-        Collections.addAll(types, BindView.class.getCanonicalName(), BindExtra.class.getCanonicalName(),
-                BindPreference.class.getCanonicalName());
-        return types;
+    protected Class[] getSupportedAnnotationClasses() {
+        return new Class[] { BindView.class, BindExtra.class, BindPreference.class, BindInstance.class };
     }
 
     @Override
@@ -88,6 +104,7 @@ public final class ShivProcessor extends BaseProcessor {
             collectBindings(env, bindings, BindView.class);
             collectBindings(env, bindings, BindExtra.class);
             collectBindings(env, bindings, BindPreference.class);
+            collectBindings(env, bindings, BindInstance.class);
 
             for (TypeElement typeElement : bindings.keySet()) {
                 String packageName = getPackageName(typeElement);
@@ -168,6 +185,32 @@ public final class ShivProcessor extends BaseProcessor {
                     .build();
 
             typeSpecBuilder.addMethod(bindMethod).addMethod(unbindMethod);
+        }
+
+        if (!holder.instanceBindings.isEmpty()) {
+            ParameterSpec bundleParam = ParameterSpec.builder(BUNDLE_CLASS
+                    .annotated(AnnotationSpec.builder(NonNull.class).build()), BUNDLE, Modifier.FINAL)
+                    .build();
+
+            // Create restoreInstance method
+            MethodSpec restoreMethod = MethodSpec.methodBuilder(RESTORE_INSTANCE)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addParameter(bundleParam)
+                    .addCode(generateRestoreInstanceMethod(typeSpecBuilder, typeElement, holder.instanceBindings))
+                    .build();
+
+            // Create saveInstance method
+            MethodSpec saveMethod = MethodSpec.methodBuilder(SAVE_INSTANCE)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addParameter(bundleParam)
+                    .addCode(generateSaveInstanceMethod(typeElement, holder.instanceBindings))
+                    .build();
+
+            typeSpecBuilder.addMethod(restoreMethod).addMethod(saveMethod);
         }
 
         return typeSpecBuilder.build();
@@ -273,7 +316,7 @@ public final class ShivProcessor extends BaseProcessor {
         for (Element element : binderFields) {
             BindExtra bindExtra = element.getAnnotation(BindExtra.class);
 
-            builder.add("$N = $T.getExtra($N, $S);\n", EXTRA, SHIV_CLASS, BUNDLE, bindExtra.value());
+            builder.add("$N = $T.get($N, $S);\n", EXTRA, BinderUtils.class, BUNDLE, bindExtra.value());
             if (isNullable(element) || bindExtra.optional()) {
                 builder.add("if ($N != null) {\n", EXTRA)
                         .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)
@@ -290,6 +333,85 @@ public final class ShivProcessor extends BaseProcessor {
         return builder.build();
     }
 
+    @NonNull
+    private CodeBlock generateSaveInstanceMethod(@NonNull TypeElement hostType,
+                                                 @NonNull List<Element> binderFields) throws ShivProcessorException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("if ($N == null) return;\n", BUNDLE)
+                .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
+
+        for (Element element : binderFields) {
+            String keyName = (KEY_INSTANCE_PREFIX + element.getSimpleName()).toUpperCase();
+            builder.add("$T.$N($N, $N, $N.$N);\n", BinderUtils.class, getPutMethodName(element), BUNDLE, keyName,
+                    FIELD_HOST, element.getSimpleName());
+        }
+
+        return builder.build();
+    }
+
+    @NonNull
+    private CodeBlock generateRestoreInstanceMethod(@NonNull TypeSpec.Builder hostBuilder,
+                                                    @NonNull TypeElement hostType,
+                                                    @NonNull List<Element> binderFields) throws ShivProcessorException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("if ($N == null) return;\n", BUNDLE)
+                .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT)
+                .add("$T $N;\n", Object.class, EXTRA);
+
+        for (Element element : binderFields) {
+            String keyName = (KEY_INSTANCE_PREFIX + element.getSimpleName()).toUpperCase();
+            hostBuilder.addField(FieldSpec.builder(String.class, keyName, Modifier.FINAL, Modifier.STATIC,
+                    Modifier.PRIVATE).initializer("\"$N.$N\"", hostType.getQualifiedName(), element.getSimpleName()).build());
+
+            builder.add("$N = $T.get($N, $N);\n", EXTRA, BinderUtils.class, BUNDLE, keyName)
+                    .add("if ($N != null) {\n", EXTRA)
+                    .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)
+                    .add("}\n");
+        }
+
+        return builder.build();
+    }
+
+    @NonNull
+    private String getPutMethodName(@NonNull Element element) throws ShivProcessorException {
+        String type = erasedType(element.asType());
+        if (ARRAY_LIST_TYPE.equals(type)) {
+            DeclaredType declaredType = (DeclaredType) element.asType();
+            List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
+            if (typeArguments.size() != 1) {
+                throw new ShivProcessorException("Generic type not specified for list: " + element);
+            }
+            TypeMirror listType = typeArguments.get(0);
+
+            if (isSubtypeOfType(listType, PARCELABLE_TYPE)) {
+                return "putParcelableArrayList";
+            } else if (isSubtypeOfType(listType, STRING_TYPE)) {
+                return "putStringArrayList";
+            } else if (isSubtypeOfType(listType, CHAR_SEQUENCE_TYPE)) {
+                return "putCharSequenceArrayList";
+            } else if (isSubtypeOfType(listType, INTEGER_TYPE)) {
+                return "putIntegerArrayList";
+            } else {
+                throw new ShivProcessorException("Invalid array list type: " + listType);
+            }
+        } else if (SPARSE_ARRAY_TYPE.equals(type)) {
+            DeclaredType declaredType = (DeclaredType) element.asType();
+            List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
+            if (typeArguments.size() != 1) {
+                throw new ShivProcessorException("Generic type not specified for sparse array: " + element);
+            }
+            TypeMirror sparseArrayType = typeArguments.get(0);
+
+            if (isSubtypeOfType(sparseArrayType, PARCELABLE_TYPE)) {
+                return "putSparseParcelableArray";
+            } else {
+                throw new ShivProcessorException("Invalid sparse array type: " + sparseArrayType);
+            }
+        } else {
+            return "put";
+        }
+    }
+
     private void collectBindings(@NonNull RoundEnvironment env,
                                  @NonNull Map<TypeElement, BindingHolder> bindings,
                                  @NonNull Class<? extends Annotation> annotation) throws ShivProcessorException {
@@ -304,15 +426,6 @@ public final class ShivProcessor extends BaseProcessor {
                 throw new ShivProcessorException("Field must not be private: " + e.getSimpleName());
             } else if (isStatic(e)) {
                 throw new ShivProcessorException("Field must not be static: " + e.getSimpleName());
-            }
-
-            if (annotation == BindView.class && !isSubtypeOfType(fieldType, VIEW_TYPE)) {
-                throw new ShivProcessorException("Field must inherit from View type: " + e.getSimpleName());
-            } else if (annotation == BindExtra.class && !isValidExtraField(fieldType)) {
-                throw new ShivProcessorException("Field must be Serializable or Parcelable: " + e.getSimpleName());
-            } else if (annotation == BindPreference.class && !isValidPreferenceField(fieldType)) {
-                throw new ShivProcessorException("Field must inherit from " + PREFERENCE_TYPE + " or " +
-                        SUPPORT_PREFERENCE_TYPE + " type: " + e.getSimpleName());
             }
 
             final TypeElement type = findEnclosingElement(e);
@@ -333,6 +446,46 @@ public final class ShivProcessor extends BaseProcessor {
                 parentType = findEnclosingElement(parentType);
             }
 
+            if (annotation == BindView.class) {
+                if (!isSubtypeOfType(fieldType, VIEW_TYPE)) {
+                    throw new ShivProcessorException("Field must inherit from View type: " + e.getSimpleName());
+                }
+            } else if (annotation == BindExtra.class) {
+                if (!isSubtypeOfType(type, ACTIVITY_TYPE) && !isSubtypeOfType(type, FRAGMENT_TYPE) &&
+                        !isSubtypeOfType(type, SUPPORT_FRAGMENT_TYPE)) {
+                    throw new ShivProcessorException("Extra binding must take place inside " +
+                            FRAGMENT_TYPE + ", " + ACTIVITY_TYPE + ", or " + SUPPORT_FRAGMENT_TYPE + " type: " + e.getSimpleName());
+                } else if (!isValidBundleEntry(fieldType)) {
+                    throw new ShivProcessorException("Extra field not suitable for bundle: " + e.getSimpleName());
+                }
+            } else if (annotation == BindPreference.class) {
+                if (isSubtypeOfType(type, PREFERENCE_FRAGMENT_TYPE) || isSubtypeOfType(type, PREFERENCE_ACTIVITY_TYPE)) {
+                    if (!isSubtypeOfType(fieldType, PREFERENCE_TYPE)) {
+                        throw new ShivProcessorException("Preferences in " + type.getQualifiedName() +
+                                " must inherit from " + PREFERENCE_TYPE + ": " + e.getSimpleName());
+                    }
+                } else if (isSubtypeOfType(type, SUPPORT_PREFERENCE_FRAGMENT_TYPE)) {
+                    if (!isSubtypeOfType(fieldType, SUPPORT_PREFERENCE_TYPE)) {
+                        throw new ShivProcessorException("Preferences in " + SUPPORT_PREFERENCE_FRAGMENT_TYPE +
+                                " must inherit from " + SUPPORT_PREFERENCE_TYPE + ": " + e.getSimpleName());
+                    }
+                } else {
+                    throw new ShivProcessorException("Preference binding must take place inside " +
+                            PREFERENCE_FRAGMENT_TYPE + ", " + PREFERENCE_ACTIVITY_TYPE + ", or " +
+                            SUPPORT_PREFERENCE_TYPE + " type: " + e.getSimpleName());
+                }
+            } else if (annotation == BindInstance.class) {
+                if (!isSubtypeOfType(type, ACTIVITY_TYPE) && !isSubtypeOfType(type, FRAGMENT_TYPE) &&
+                        !isSubtypeOfType(type, SUPPORT_FRAGMENT_TYPE)) {
+                    throw new ShivProcessorException("Instance binding must take place inside " +
+                            FRAGMENT_TYPE + ", " + ACTIVITY_TYPE + ", or " + SUPPORT_FRAGMENT_TYPE + " type: " + e.getSimpleName());
+                } else if (!isValidBundleEntry(fieldType)) {
+                    throw new ShivProcessorException("Instance field not suitable for bundle: " + e.getSimpleName());
+                }
+            } else {
+                throw new ShivProcessorException("Unrecognised annotation: " + annotation);
+            }
+
             BindingHolder bindingHolder = bindings.get(type);
             if (bindingHolder == null) {
                 bindingHolder = new BindingHolder();
@@ -343,13 +496,10 @@ public final class ShivProcessor extends BaseProcessor {
         }
     }
 
-    private boolean isValidExtraField(@NonNull TypeMirror fieldType) {
+    private boolean isValidBundleEntry(@NonNull TypeMirror fieldType) {
         return isAssignable(fieldType, CHAR_SEQUENCE_TYPE) || isAssignable(fieldType, SERIALIZABLE_TYPE) ||
-                isAssignable(fieldType, PARCELABLE_TYPE);
-    }
-
-    private boolean isValidPreferenceField(@NonNull TypeMirror fieldType) {
-        return isSubtypeOfType(fieldType, PREFERENCE_TYPE) || isSubtypeOfType(fieldType, SUPPORT_PREFERENCE_TYPE);
+                isAssignable(fieldType, PARCELABLE_TYPE) || SPARSE_ARRAY_TYPE.equals(erasedType(fieldType)) ||
+                ARRAY_LIST_TYPE.equals(erasedType(fieldType));
     }
 
     @NonNull
@@ -377,6 +527,9 @@ public final class ShivProcessor extends BaseProcessor {
         @NonNull
         final List<Element> preferenceBindings = new ArrayList<>();
 
+        @NonNull
+        final List<Element> instanceBindings = new ArrayList<>();
+
         void addBinding(@NonNull Class<? extends Annotation> annotation, @NonNull Element element) throws ShivProcessorException {
             if (annotation == BindView.class) {
                 viewBindings.add(element);
@@ -384,6 +537,8 @@ public final class ShivProcessor extends BaseProcessor {
                 extraBindings.add(element);
             } else if (annotation == BindPreference.class) {
                 preferenceBindings.add(element);
+            } else if (annotation == BindInstance.class) {
+                instanceBindings.add(element);
             } else {
                 throw new ShivProcessorException("Invalid annotation: " + annotation);
             }

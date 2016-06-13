@@ -16,7 +16,9 @@
 
 package me.oriley.shiv;
 
+import android.os.Bundle;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
 @SuppressWarnings({"WeakerAccess", "unused"})
 public abstract class Binder {
@@ -40,6 +42,14 @@ public abstract class Binder {
     }
 
     public void unbindPreferences(@NonNull final Object host) {
+        // To be overridden
+    }
+
+    public void saveInstance(@NonNull final Object host, @Nullable Bundle bundle) {
+        // To be overridden
+    }
+
+    public void restoreInstance(@NonNull final Object host, @Nullable Bundle bundle) {
         // To be overridden
     }
 }

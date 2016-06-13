@@ -120,6 +120,40 @@ public final class Shiv {
         }
     }
 
+    @SuppressWarnings("unused")
+    public static void saveInstance(@NonNull Object object, @Nullable Bundle bundle) {
+        enforceMainThread();
+
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            saveInstance(object, type, bundle);
+        }
+    }
+
+    private static void saveInstance(@NonNull Object object, @NonNull Class objectClass, @Nullable Bundle bundle) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.saveInstance(object, bundle);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public static void restoreInstance(@NonNull Object object, @Nullable Bundle bundle) {
+        enforceMainThread();
+
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            restoreInstance(object, type, bundle);
+        }
+    }
+
+    private static void restoreInstance(@NonNull Object object, @NonNull Class objectClass, @Nullable Bundle bundle) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.restoreInstance(object, bundle);
+        }
+    }
+
     private static void enforceMainThread() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             throw new IllegalStateException("Binding must occur on the main thread: " + Looper.myLooper());

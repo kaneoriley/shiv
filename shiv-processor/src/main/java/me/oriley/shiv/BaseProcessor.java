@@ -34,6 +34,7 @@ import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -67,9 +68,21 @@ abstract class BaseProcessor extends AbstractProcessor {
     }
 
     @Override
+    public Set<String> getSupportedAnnotationTypes() {
+        Set<String> types = new LinkedHashSet<>();
+        for (Class c : getSupportedAnnotationClasses()) {
+            types.add(c.getCanonicalName());
+        }
+        return types;
+    }
+
+    @Override
     public SourceVersion getSupportedSourceVersion() {
         return SourceVersion.latestSupported();
     }
+
+    @NonNull
+    protected abstract Class[] getSupportedAnnotationClasses();
 
     @NonNull
     protected String getPackageName(@NonNull TypeElement type) {
@@ -153,6 +166,16 @@ abstract class BaseProcessor extends AbstractProcessor {
             }
         }
         return false;
+    }
+
+    @NonNull
+    protected String erasedType(@NonNull TypeMirror type) {
+        String name = mTypes.erasure(type).toString();
+        int typeParamStart = name.indexOf('<');
+        if (typeParamStart != -1) {
+            name = name.substring(0, typeParamStart);
+        }
+        return name;
     }
 
     @Nullable
