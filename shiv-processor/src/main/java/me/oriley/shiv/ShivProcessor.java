@@ -302,6 +302,8 @@ public final class ShivProcessor extends BaseProcessor {
             TypeMirror fieldType = e.asType();
             if (isPrivate(e)) {
                 throw new ShivProcessorException("Field must not be private: " + e.getSimpleName());
+            } else if (isStatic(e)) {
+                throw new ShivProcessorException("Field must not be static: " + e.getSimpleName());
             }
 
             if (annotation == BindView.class && !isSubtypeOfType(fieldType, VIEW_TYPE)) {
