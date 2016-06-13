@@ -97,6 +97,11 @@ abstract class BaseProcessor extends AbstractProcessor {
         return modifiers.contains(Modifier.PRIVATE);
     }
 
+    protected boolean isStatic(@NonNull Element element) {
+        Set<Modifier> modifiers = element.getModifiers();
+        return modifiers.contains(Modifier.STATIC);
+    }
+
     protected boolean isNullable(@NonNull Element element) {
         return hasAnnotationWithName(element, NULLABLE);
     }

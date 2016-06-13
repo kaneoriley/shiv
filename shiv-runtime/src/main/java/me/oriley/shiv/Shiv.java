@@ -70,6 +70,40 @@ public final class Shiv {
     }
 
     @SuppressWarnings("unused")
+    public static void bindPreferences(@NonNull Object object) {
+        enforceMainThread();
+
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            bindPreferences(object, type);
+        }
+    }
+
+    private static void bindPreferences(@NonNull Object object, @NonNull Class objectClass) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.bindPreferences(object);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public static void unbindPreferences(@NonNull Object object) {
+        enforceMainThread();
+
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            unbindPreferences(object, type);
+        }
+    }
+
+    private static void unbindPreferences(@NonNull Object object, @NonNull Class objectClass) {
+        Binder binder = findBinderForClass(objectClass);
+        if (binder != null) {
+            binder.unbindPreferences(object);
+        }
+    }
+
+    @SuppressWarnings("unused")
     public static void bindExtras(@NonNull Object object) {
         enforceMainThread();
 
@@ -88,7 +122,7 @@ public final class Shiv {
 
     private static void enforceMainThread() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            throw new IllegalStateException("Binding must occur on the main thread " + Looper.myLooper());
+            throw new IllegalStateException("Binding must occur on the main thread: " + Looper.myLooper());
         }
     }
 
@@ -144,7 +178,6 @@ public final class Shiv {
             log("Created Binder for %s.", cls);
         } catch (Exception e) {
             log("Binder not found for %s.", cls);
-            e.printStackTrace();
             binder = null;
         }
 

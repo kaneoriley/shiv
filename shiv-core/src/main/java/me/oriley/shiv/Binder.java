@@ -34,4 +34,12 @@ public abstract class Binder {
     public void bindExtras(@NonNull final Object host) {
         // To be overridden
     }
+
+    public void bindPreferences(@NonNull final Object host) {
+        // To be overridden
+    }
+
+    public void unbindPreferences(@NonNull final Object host) {
+        // To be overridden
+    }
 }
