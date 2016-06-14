@@ -20,6 +20,8 @@ import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
+import java.util.Map;
+
 @SuppressWarnings({"WeakerAccess", "unused"})
 public abstract class Binder {
 
@@ -51,6 +53,14 @@ public abstract class Binder {
     }
 
     public void restoreInstance(@NonNull final Object host, @Nullable Bundle bundle) {
+        // To be overridden
+    }
+
+    public void saveNonConfigurationInstance(@NonNull final Object host, @NonNull Map<String, Object> map) {
+        // To be overridden
+    }
+
+    public void restoreNonConfigurationInstance(@NonNull final Object host) {
         // To be overridden
     }
 }

@@ -113,6 +113,32 @@ public final class Shiv {
         }
     }
 
+    // Cannot be fluent as it needs to return
+    @SuppressWarnings("unused")
+    @NonNull
+    public static Map<String, Object> saveNonConfigurationInstance(@NonNull Object object) {
+        Map<String, Object> map = new HashMap<>();
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.saveNonConfigurationInstance(object, map);
+            }
+        }
+        return map;
+    }
+
+    @SuppressWarnings("unused")
+    public static void restoreNonConfigurationInstance(@NonNull Object object) {
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.restoreNonConfigurationInstance(object);
+            }
+        }
+    }
+
     @NonNull
     private static Set<Class<?>> flattenHierarchy(@NonNull Class<?> concreteClass) {
         Set<Class<?>> classes = sFlattenHierarchyCache.get(concreteClass);
@@ -238,6 +264,12 @@ public final class Shiv {
         @NonNull
         public FluentInterface restoreInstance(@Nullable Bundle bundle) {
             Shiv.restoreInstance(mHost, bundle);
+            return this;
+        }
+
+        @NonNull
+        public FluentInterface restoreNonConfigurationInstance() {
+            Shiv.restoreNonConfigurationInstance(mHost);
             return this;
         }
     }

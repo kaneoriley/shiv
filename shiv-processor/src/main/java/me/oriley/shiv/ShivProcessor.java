@@ -49,6 +49,10 @@ public final class ShivProcessor extends BaseProcessor {
     private static final String SUPPORT_PREFERENCE_TYPE = "android.support.v7.preference.Preference";
     private static final String SUPPORT_FRAGMENT_TYPE = "android.support.v4.app.Fragment";
     private static final String SUPPORT_PREFERENCE_FRAGMENT_TYPE = "android.support.v7.preference.PreferenceFragmentCompat";
+    private static final String SUPPORT_FRAGMENT_ACTIVITY_TYPE = "android.support.v4.app.FragmentActivity";
+
+    private static final ParameterizedTypeName NON_CONFIGURATION_MAP_TYPE =
+            ParameterizedTypeName.get(Map.class, String.class, Object.class);
 
     private static final String BIND_VIEWS = "bindViews";
     private static final String UNBIND_VIEWS = "unbindViews";
@@ -57,9 +61,12 @@ public final class ShivProcessor extends BaseProcessor {
     private static final String UNBIND_PREFERENCES = "unbindPreferences";
     private static final String SAVE_INSTANCE = "saveInstance";
     private static final String RESTORE_INSTANCE = "restoreInstance";
+    private static final String SAVE_NON_CONFIG_INSTANCE = "saveNonConfigurationInstance";
+    private static final String RESTORE_NON_CONFIG_INSTANCE = "restoreNonConfigurationInstance";
     private static final String OBJECT = "object";
     private static final String INTENT = "intent";
     private static final String BUNDLE = "bundle";
+    private static final String MAP = "map";
     private static final String EXTRA = "extra";
     private static final String BOUND = "bound";
     private static final String VIEW = "view";
@@ -81,7 +88,8 @@ public final class ShivProcessor extends BaseProcessor {
     @NonNull
     @Override
     protected Class[] getSupportedAnnotationClasses() {
-        return new Class[]{BindView.class, BindExtra.class, BindPreference.class, BindInstance.class};
+        return new Class[]{BindView.class, BindExtra.class, BindPreference.class, BindInstance.class,
+                BindNonConfigurationInstance.class};
     }
 
     @Override
@@ -96,6 +104,7 @@ public final class ShivProcessor extends BaseProcessor {
             collectBindings(env, bindings, BindExtra.class);
             collectBindings(env, bindings, BindPreference.class);
             collectBindings(env, bindings, BindInstance.class);
+            collectBindings(env, bindings, BindNonConfigurationInstance.class);
 
             for (TypeElement typeElement : bindings.keySet()) {
                 String packageName = getPackageName(typeElement);
@@ -216,6 +225,32 @@ public final class ShivProcessor extends BaseProcessor {
                     .addParameter(param)
                     .addParameter(bundleParam)
                     .addCode(generateSaveInstanceMethod(typeElement, holder.instanceBindings))
+                    .build();
+
+            typeSpecBuilder.addMethod(restoreMethod).addMethod(saveMethod);
+        }
+
+        if (!holder.nonConfigurationInstanceBindings.isEmpty()) {
+            ParameterSpec mapParam = ParameterSpec.builder(NON_CONFIGURATION_MAP_TYPE.annotated(AnnotationSpec
+                    .builder(NonNull.class).build()), MAP, Modifier.FINAL)
+                    .build();
+
+            // Create restoreNonConfigInstance method
+            MethodSpec restoreMethod = MethodSpec.methodBuilder(RESTORE_NON_CONFIG_INSTANCE)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addCode(generateRestoreNonConfigInstanceMethod(typeSpecBuilder, typeElement,
+                            holder.nonConfigurationInstanceBindings))
+                    .build();
+
+            // Create saveNonConfigInstance method
+            MethodSpec saveMethod = MethodSpec.methodBuilder(SAVE_NON_CONFIG_INSTANCE)
+                    .addModifiers(Modifier.PUBLIC)
+                    .addAnnotation(Override.class)
+                    .addParameter(param)
+                    .addParameter(mapParam)
+                    .addCode(generateSaveNonConfigInstanceMethod(typeElement, holder.nonConfigurationInstanceBindings))
                     .build();
 
             typeSpecBuilder.addMethod(restoreMethod).addMethod(saveMethod);
@@ -452,6 +487,57 @@ public final class ShivProcessor extends BaseProcessor {
         }
     }
 
+    @NonNull
+    private CodeBlock generateSaveNonConfigInstanceMethod(@NonNull TypeElement hostType,
+                                                          @NonNull List<Element> binderFields) throws ShivProcessorException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
+
+        for (Element element : binderFields) {
+            String keyName = (KEY_INSTANCE_PREFIX + element.getSimpleName()).toUpperCase();
+            builder.beginControlFlow("if ($N.$N != null)", FIELD_HOST, element.getSimpleName())
+                    .add("$N.put($N, $N.$N);\n", MAP, keyName, FIELD_HOST, element.getSimpleName())
+                    .endControlFlow();
+        }
+
+        return builder.build();
+    }
+
+    @NonNull
+    private CodeBlock generateRestoreNonConfigInstanceMethod(@NonNull TypeSpec.Builder hostBuilder,
+                                                             @NonNull TypeElement hostType,
+                                                             @NonNull List<Element> binderFields) throws ShivProcessorException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
+
+        String methodName;
+        if (isSubtypeOfType(hostType, SUPPORT_FRAGMENT_ACTIVITY_TYPE)) {
+            methodName = "getLastCustomNonConfigurationInstance";
+        } else if (isSubtypeOfType(hostType, Activity.class)) {
+            methodName = "getLastNonConfigurationInstance";
+        } else {
+            throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
+        }
+        builder.add("$T $N = $N.$N();\n", Object.class, EXTRA, FIELD_HOST, methodName)
+                .beginControlFlow("if ($N == null)", EXTRA)
+                .add("return;\n")
+                .endControlFlow();
+        builder.add("$T $N = ($T) $N;\n", NON_CONFIGURATION_MAP_TYPE, MAP, NON_CONFIGURATION_MAP_TYPE, EXTRA);
+
+        for (Element element : binderFields) {
+            String keyName = (KEY_INSTANCE_PREFIX + element.getSimpleName()).toUpperCase();
+            hostBuilder.addField(FieldSpec.builder(String.class, keyName, Modifier.FINAL, Modifier.STATIC,
+                    Modifier.PRIVATE).initializer("\"$N.$N\"", hostType.getQualifiedName(), element.getSimpleName()).build());
+
+            builder.add("$N = $N.get($N);\n", EXTRA, MAP, keyName)
+                    .add("if ($N != null) {\n", EXTRA)
+                    .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)
+                    .add("}\n");
+        }
+
+        return builder.build();
+    }
+
     private void collectBindings(@NonNull RoundEnvironment env,
                                  @NonNull Map<TypeElement, BindingHolder> bindings,
                                  @NonNull Class<? extends Annotation> annotation) throws ShivProcessorException {
@@ -521,6 +607,10 @@ public final class ShivProcessor extends BaseProcessor {
                 } else if (!isValidBundleEntry(fieldType)) {
                     throw new ShivProcessorException("Instance field not suitable for bundle: " + e.getSimpleName());
                 }
+            } else if (annotation == BindNonConfigurationInstance.class) {
+                if (!isSubtypeOfType(type, Activity.class)) {
+                    throw new ShivProcessorException("Invalid non-configuration instance binding class: " + type.getSimpleName());
+                }
             } else {
                 throw new ShivProcessorException("Unrecognised annotation: " + annotation);
             }
@@ -569,6 +659,9 @@ public final class ShivProcessor extends BaseProcessor {
         @NonNull
         final List<Element> instanceBindings = new ArrayList<>();
 
+        @NonNull
+        final List<Element> nonConfigurationInstanceBindings = new ArrayList<>();
+
         void addBinding(@NonNull Class<? extends Annotation> annotation, @NonNull Element element) throws ShivProcessorException {
             if (annotation == BindView.class) {
                 viewBindings.add(element);
@@ -578,6 +671,8 @@ public final class ShivProcessor extends BaseProcessor {
                 preferenceBindings.add(element);
             } else if (annotation == BindInstance.class) {
                 instanceBindings.add(element);
+            } else if (annotation == BindNonConfigurationInstance.class) {
+                nonConfigurationInstanceBindings.add(element);
             } else {
                 throw new ShivProcessorException("Invalid annotation: " + annotation);
             }
