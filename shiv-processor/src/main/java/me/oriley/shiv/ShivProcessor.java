@@ -27,10 +27,16 @@ import android.preference.PreferenceFragment;
 import android.support.annotation.NonNull;
 import android.util.SparseArray;
 import android.view.View;
+import android.view.ViewGroup;
 import com.squareup.javapoet.*;
 
-import javax.annotation.processing.*;
-import javax.lang.model.element.*;
+import javax.annotation.processing.Filer;
+import javax.annotation.processing.ProcessingEnvironment;
+import javax.annotation.processing.RoundEnvironment;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import java.io.IOException;
@@ -40,26 +46,8 @@ import java.util.*;
 
 public final class ShivProcessor extends BaseProcessor {
 
-    private static final String INTEGER_TYPE = Integer.class.getCanonicalName();
-    private static final String STRING_TYPE = String.class.getCanonicalName();
-    private static final String CHAR_SEQUENCE_TYPE = CharSequence.class.getCanonicalName();
-    private static final String SERIALIZABLE_TYPE = Serializable.class.getCanonicalName();
-    private static final String PARCELABLE_TYPE = Parcelable.class.getCanonicalName();
-    private static final String SPARSE_ARRAY_TYPE = SparseArray.class.getCanonicalName();
-    private static final String ARRAY_LIST_TYPE = ArrayList.class.getCanonicalName();
-    private static final String PREFERENCE_TYPE = Preference.class.getCanonicalName();
     private static final String SUPPORT_PREFERENCE_TYPE = "android.support.v7.preference.Preference";
-    private static final String VIEW_TYPE = View.class.getCanonicalName();
-
-    private static final String ACTIVITY_TYPE = Activity.class.getCanonicalName();
-    private static final String FRAGMENT_TYPE = Fragment.class.getCanonicalName();
     private static final String SUPPORT_FRAGMENT_TYPE = "android.support.v4.app.Fragment";
-    private static final ClassName BUNDLE_CLASS = ClassName.get(Bundle.class);
-    private static final ClassName INTENT_CLASS = ClassName.get(Intent.class);
-    private static final ClassName VIEW_CLASS = ClassName.get(View.class);
-
-    private static final String PREFERENCE_ACTIVITY_TYPE = PreferenceActivity.class.getCanonicalName();
-    private static final String PREFERENCE_FRAGMENT_TYPE = PreferenceFragment.class.getCanonicalName();
     private static final String SUPPORT_PREFERENCE_FRAGMENT_TYPE = "android.support.v7.preference.PreferenceFragmentCompat";
 
     private static final String BIND_VIEWS = "bindViews";
@@ -73,9 +61,12 @@ public final class ShivProcessor extends BaseProcessor {
     private static final String INTENT = "intent";
     private static final String BUNDLE = "bundle";
     private static final String EXTRA = "extra";
+    private static final String BOUND = "bound";
+    private static final String VIEW = "view";
+    private static final String VIEW_GROUP = "viewGroup";
     private static final String FIELD_HOST = "fieldHost";
-    private static final String VIEW_HOST = "viewHost";
     private static final String KEY_INSTANCE_PREFIX = "SHIV_KEY_INSTANCE_";
+    private static final String VIEW_COUNT = "VIEW_COUNT";
 
     @NonNull
     private Filer mFiler;
@@ -90,7 +81,7 @@ public final class ShivProcessor extends BaseProcessor {
     @NonNull
     @Override
     protected Class[] getSupportedAnnotationClasses() {
-        return new Class[] { BindView.class, BindExtra.class, BindPreference.class, BindInstance.class };
+        return new Class[]{BindView.class, BindExtra.class, BindPreference.class, BindInstance.class};
     }
 
     @Override
@@ -136,12 +127,29 @@ public final class ShivProcessor extends BaseProcessor {
                 .build();
 
         if (!holder.viewBindings.isEmpty()) {
+            ParameterSpec viewGroupParam = ParameterSpec.builder(ClassName.get(ViewGroup.class)
+                    .annotated(AnnotationSpec.builder(NonNull.class).build()), VIEW_GROUP, Modifier.FINAL)
+                    .build();
+
+            // Add count to final field for early exit strategy
+            typeSpecBuilder.addField(FieldSpec.builder(int.class, VIEW_COUNT, Modifier.FINAL, Modifier.STATIC,
+                    Modifier.PRIVATE).initializer("$L", holder.viewBindings.size()).build());
+
             // Create bindViews method
-            MethodSpec bindMethod = MethodSpec.methodBuilder(BIND_VIEWS)
+            MethodSpec publicBindMethod = MethodSpec.methodBuilder(BIND_VIEWS)
                     .addModifiers(Modifier.PUBLIC)
                     .addAnnotation(Override.class)
                     .addParameter(param)
-                    .addCode(generateBindViewsMethod(typeElement, holder.viewBindings))
+                    .addCode(generatePublicBindViewsMethod(typeElement, holder.viewBindings))
+                    .build();
+
+            // Create bindViews method
+            MethodSpec iterativeBindMethod = MethodSpec.methodBuilder(BIND_VIEWS)
+                    .addModifiers(Modifier.PRIVATE)
+                    .addParameter(param)
+                    .addParameter(viewGroupParam)
+                    .returns(int.class)
+                    .addCode(generateProtectedBindViewsMethod(typeElement, holder.viewBindings))
                     .build();
 
             // Create unbindViews method
@@ -152,7 +160,7 @@ public final class ShivProcessor extends BaseProcessor {
                     .addCode(generateUnbindViewsMethod(typeElement, holder.viewBindings))
                     .build();
 
-            typeSpecBuilder.addMethod(bindMethod).addMethod(unbindMethod);
+            typeSpecBuilder.addMethod(publicBindMethod).addMethod(iterativeBindMethod).addMethod(unbindMethod);
         }
 
         if (!holder.extraBindings.isEmpty()) {
@@ -188,7 +196,7 @@ public final class ShivProcessor extends BaseProcessor {
         }
 
         if (!holder.instanceBindings.isEmpty()) {
-            ParameterSpec bundleParam = ParameterSpec.builder(BUNDLE_CLASS
+            ParameterSpec bundleParam = ParameterSpec.builder(ClassName.get(Bundle.class)
                     .annotated(AnnotationSpec.builder(NonNull.class).build()), BUNDLE, Modifier.FINAL)
                     .build();
 
@@ -217,31 +225,63 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     @NonNull
-    private CodeBlock generateBindViewsMethod(@NonNull TypeElement hostType,
-                                              @NonNull List<Element> binderFields) throws ShivProcessorException {
+    private CodeBlock generatePublicBindViewsMethod(@NonNull TypeElement hostType,
+                                                    @NonNull List<Element> binderFields) throws ShivProcessorException {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
 
-        String viewHost;
-        if (isSubtypeOfType(hostType, ACTIVITY_TYPE) || isSubtypeOfType(hostType, VIEW_TYPE)) {
-            viewHost = FIELD_HOST;
-        } else if (isSubtypeOfType(hostType, FRAGMENT_TYPE) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT_TYPE)) {
-            builder.add("$T $N = $N.getView();\n", VIEW_CLASS, VIEW_HOST, FIELD_HOST);
-            viewHost = VIEW_HOST;
+        String getViewGroup;
+        if (isSubtypeOfType(hostType, Activity.class)) {
+            getViewGroup = ".getWindow().getDecorView().getRootView()";
+        } else if (isSubtypeOfType(hostType, ViewGroup.class)) {
+            getViewGroup = "";
+        } else if (isSubtypeOfType(hostType, Fragment.class) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT_TYPE)) {
+            getViewGroup = ".getView().getRootView()";
         } else {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
         }
+        builder.add("$T $N = ($T) $N$L;\n", ViewGroup.class, VIEW_GROUP, ViewGroup.class, FIELD_HOST, getViewGroup)
+                .add("$L($N, $N);\n", BIND_VIEWS, OBJECT, VIEW_GROUP);
 
         for (Element element : binderFields) {
-            builder.add("$N.$N = ($T) $N.findViewById($L);\n", FIELD_HOST, element.getSimpleName(), element.asType(),
-                    viewHost, element.getAnnotation(BindView.class).value());
             if (!isNullable(element)) {
                 builder.add("if ($N.$N == null) {\n", FIELD_HOST, element.getSimpleName())
-                .add("    throw new $T(\"Non-optional field $N.$N was not found\");\n", NullPointerException.class,
-                        FIELD_HOST, element.getSimpleName())
-                .add("}\n");
+                        .add("    throw new $T(\"Non-optional field $T.$N was not found\");\n", NullPointerException.class,
+                                hostType, element.getSimpleName())
+                        .add("}\n");
             }
         }
+
+        return builder.build();
+    }
+
+    @NonNull
+    private CodeBlock generateProtectedBindViewsMethod(@NonNull TypeElement hostType,
+                                                       @NonNull List<Element> binderFields) throws ShivProcessorException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT)
+                .add("int size = $N.getChildCount();\n", VIEW_GROUP)
+                .add("int $N = 0;\n", BOUND)
+                .beginControlFlow("for (int i = 0; i < size; i++)")
+                .add("$T $N = $N.getChildAt(i);\n", View.class, VIEW, VIEW_GROUP)
+                .beginControlFlow("if ($N instanceof $T)", VIEW, ViewGroup.class)
+                .add("$N += $N($N, ($T) $N);\n", BOUND, BIND_VIEWS, OBJECT, ViewGroup.class, VIEW)
+                .endControlFlow()
+                .beginControlFlow("switch ($N.getId())", VIEW);
+
+        for (Element element : binderFields) {
+            builder.add("case $L:\n", element.getAnnotation(BindView.class).value())
+                    .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), VIEW)
+                    .add("    $N++;\n", BOUND)
+                    .add("    break;\n");
+        }
+
+        builder.endControlFlow()
+                .beginControlFlow("if ($N >= $N)", BOUND, VIEW_COUNT)
+                .add("break;\n")
+                .endControlFlow()
+                .endControlFlow()
+                .add("return $N;\n", BOUND);
 
         return builder.build();
     }
@@ -265,7 +305,7 @@ public final class ShivProcessor extends BaseProcessor {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
 
-        if (!isSubtypeOfType(hostType, PREFERENCE_ACTIVITY_TYPE) && !isSubtypeOfType(hostType, PREFERENCE_FRAGMENT_TYPE) &&
+        if (!isSubtypeOfType(hostType, PreferenceActivity.class) && !isSubtypeOfType(hostType, PreferenceFragment.class) &&
                 !isSubtypeOfType(hostType, SUPPORT_PREFERENCE_FRAGMENT_TYPE)) {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
         }
@@ -275,8 +315,8 @@ public final class ShivProcessor extends BaseProcessor {
                     FIELD_HOST, element.getAnnotation(BindPreference.class).value());
             if (!isNullable(element)) {
                 builder.add("if ($N.$N == null) {\n", FIELD_HOST, element.getSimpleName())
-                        .add("    throw new $T(\"Non-optional field $N.$N was not found\");\n", NullPointerException.class,
-                                FIELD_HOST, element.getSimpleName())
+                        .add("    throw new $T(\"Non-optional field $T.$N was not found\");\n", NullPointerException.class,
+                                hostType, element.getSimpleName())
                         .add("}\n");
             }
         }
@@ -304,11 +344,11 @@ public final class ShivProcessor extends BaseProcessor {
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT)
                 .add("$T $N;\n", Object.class, EXTRA);
 
-        if (isSubtypeOfType(hostType, ACTIVITY_TYPE)) {
-            builder.add("$T $N = $N.getIntent();\n", INTENT_CLASS, INTENT, FIELD_HOST);
-            builder.add("$T $N = $N != null ? $N.getExtras() : null;\n", BUNDLE_CLASS, BUNDLE, INTENT, INTENT);
-        } else if (isSubtypeOfType(hostType, FRAGMENT_TYPE) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT_TYPE)) {
-            builder.add("$T $N = $N.getArguments();\n", BUNDLE_CLASS, BUNDLE, FIELD_HOST);
+        if (isSubtypeOfType(hostType, Activity.class)) {
+            builder.add("$T $N = $N.getIntent();\n", Intent.class, INTENT, FIELD_HOST);
+            builder.add("$T $N = $N != null ? $N.getExtras() : null;\n", Bundle.class, BUNDLE, INTENT, INTENT);
+        } else if (isSubtypeOfType(hostType, Fragment.class) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT_TYPE)) {
+            builder.add("$T $N = $N.getArguments();\n", Bundle.class, BUNDLE, FIELD_HOST);
         } else {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
         }
@@ -323,8 +363,8 @@ public final class ShivProcessor extends BaseProcessor {
                         .add("}\n");
             } else {
                 builder.add("if ($N == null) {\n", EXTRA)
-                        .add("    throw new $T(\"Non-optional extra for $N.$N was not found\");\n", NullPointerException.class,
-                                FIELD_HOST, element.getSimpleName())
+                        .add("    throw new $T(\"Non-optional extra for $T.$N was not found\");\n", NullPointerException.class,
+                                hostType, element.getSimpleName())
                         .add("}\n")
                         .add("$N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA);
             }
@@ -375,7 +415,7 @@ public final class ShivProcessor extends BaseProcessor {
     @NonNull
     private String getPutMethodName(@NonNull Element element) throws ShivProcessorException {
         String type = erasedType(element.asType());
-        if (ARRAY_LIST_TYPE.equals(type)) {
+        if (ArrayList.class.getCanonicalName().equals(type)) {
             DeclaredType declaredType = (DeclaredType) element.asType();
             List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
             if (typeArguments.size() != 1) {
@@ -383,18 +423,18 @@ public final class ShivProcessor extends BaseProcessor {
             }
             TypeMirror listType = typeArguments.get(0);
 
-            if (isSubtypeOfType(listType, PARCELABLE_TYPE)) {
+            if (isSubtypeOfType(listType, Parcelable.class)) {
                 return "putParcelableArrayList";
-            } else if (isSubtypeOfType(listType, STRING_TYPE)) {
+            } else if (isSubtypeOfType(listType, String.class)) {
                 return "putStringArrayList";
-            } else if (isSubtypeOfType(listType, CHAR_SEQUENCE_TYPE)) {
+            } else if (isSubtypeOfType(listType, CharSequence.class)) {
                 return "putCharSequenceArrayList";
-            } else if (isSubtypeOfType(listType, INTEGER_TYPE)) {
+            } else if (isSubtypeOfType(listType, Integer.class)) {
                 return "putIntegerArrayList";
             } else {
                 throw new ShivProcessorException("Invalid array list type: " + listType);
             }
-        } else if (SPARSE_ARRAY_TYPE.equals(type)) {
+        } else if (SparseArray.class.getCanonicalName().equals(type)) {
             DeclaredType declaredType = (DeclaredType) element.asType();
             List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
             if (typeArguments.size() != 1) {
@@ -402,7 +442,7 @@ public final class ShivProcessor extends BaseProcessor {
             }
             TypeMirror sparseArrayType = typeArguments.get(0);
 
-            if (isSubtypeOfType(sparseArrayType, PARCELABLE_TYPE)) {
+            if (isSubtypeOfType(sparseArrayType, Parcelable.class)) {
                 return "putSparseParcelableArray";
             } else {
                 throw new ShivProcessorException("Invalid sparse array type: " + sparseArrayType);
@@ -447,22 +487,24 @@ public final class ShivProcessor extends BaseProcessor {
             }
 
             if (annotation == BindView.class) {
-                if (!isSubtypeOfType(fieldType, VIEW_TYPE)) {
+                if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
+                        !isSubtypeOfType(type, SUPPORT_FRAGMENT_TYPE) && !isSubtypeOfType(type, ViewGroup.class)) {
+                    throw new ShivProcessorException("Invalid view binding class: " + type.getSimpleName());
+                } else if (!isSubtypeOfType(fieldType, View.class)) {
                     throw new ShivProcessorException("Field must inherit from View type: " + e.getSimpleName());
                 }
             } else if (annotation == BindExtra.class) {
-                if (!isSubtypeOfType(type, ACTIVITY_TYPE) && !isSubtypeOfType(type, FRAGMENT_TYPE) &&
+                if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
                         !isSubtypeOfType(type, SUPPORT_FRAGMENT_TYPE)) {
-                    throw new ShivProcessorException("Extra binding must take place inside " +
-                            FRAGMENT_TYPE + ", " + ACTIVITY_TYPE + ", or " + SUPPORT_FRAGMENT_TYPE + " type: " + e.getSimpleName());
+                    throw new ShivProcessorException("Invalid extra binding class: " + type.getSimpleName());
                 } else if (!isValidBundleEntry(fieldType)) {
                     throw new ShivProcessorException("Extra field not suitable for bundle: " + e.getSimpleName());
                 }
             } else if (annotation == BindPreference.class) {
-                if (isSubtypeOfType(type, PREFERENCE_FRAGMENT_TYPE) || isSubtypeOfType(type, PREFERENCE_ACTIVITY_TYPE)) {
-                    if (!isSubtypeOfType(fieldType, PREFERENCE_TYPE)) {
+                if (isSubtypeOfType(type, PreferenceFragment.class) || isSubtypeOfType(type, PreferenceActivity.class)) {
+                    if (!isSubtypeOfType(fieldType, Preference.class)) {
                         throw new ShivProcessorException("Preferences in " + type.getQualifiedName() +
-                                " must inherit from " + PREFERENCE_TYPE + ": " + e.getSimpleName());
+                                " must inherit from " + Preference.class + ": " + e.getSimpleName());
                     }
                 } else if (isSubtypeOfType(type, SUPPORT_PREFERENCE_FRAGMENT_TYPE)) {
                     if (!isSubtypeOfType(fieldType, SUPPORT_PREFERENCE_TYPE)) {
@@ -470,15 +512,12 @@ public final class ShivProcessor extends BaseProcessor {
                                 " must inherit from " + SUPPORT_PREFERENCE_TYPE + ": " + e.getSimpleName());
                     }
                 } else {
-                    throw new ShivProcessorException("Preference binding must take place inside " +
-                            PREFERENCE_FRAGMENT_TYPE + ", " + PREFERENCE_ACTIVITY_TYPE + ", or " +
-                            SUPPORT_PREFERENCE_TYPE + " type: " + e.getSimpleName());
+                    throw new ShivProcessorException("Invalid preference binding class: " + type.getSimpleName());
                 }
             } else if (annotation == BindInstance.class) {
-                if (!isSubtypeOfType(type, ACTIVITY_TYPE) && !isSubtypeOfType(type, FRAGMENT_TYPE) &&
+                if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
                         !isSubtypeOfType(type, SUPPORT_FRAGMENT_TYPE)) {
-                    throw new ShivProcessorException("Instance binding must take place inside " +
-                            FRAGMENT_TYPE + ", " + ACTIVITY_TYPE + ", or " + SUPPORT_FRAGMENT_TYPE + " type: " + e.getSimpleName());
+                    throw new ShivProcessorException("Invalid instance binding class: " + type.getSimpleName());
                 } else if (!isValidBundleEntry(fieldType)) {
                     throw new ShivProcessorException("Instance field not suitable for bundle: " + e.getSimpleName());
                 }
@@ -497,9 +536,9 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     private boolean isValidBundleEntry(@NonNull TypeMirror fieldType) {
-        return isAssignable(fieldType, CHAR_SEQUENCE_TYPE) || isAssignable(fieldType, SERIALIZABLE_TYPE) ||
-                isAssignable(fieldType, PARCELABLE_TYPE) || SPARSE_ARRAY_TYPE.equals(erasedType(fieldType)) ||
-                ARRAY_LIST_TYPE.equals(erasedType(fieldType));
+        return isAssignable(fieldType, CharSequence.class) || isAssignable(fieldType, Serializable.class) ||
+                isAssignable(fieldType, Parcelable.class) || SparseArray.class.getCanonicalName().equals(erasedType(fieldType)) ||
+                ArrayList.class.getCanonicalName().equals(erasedType(fieldType));
     }
 
     @NonNull
@@ -516,7 +555,7 @@ public final class ShivProcessor extends BaseProcessor {
     }
 
     @SuppressWarnings("WeakerAccess")
-    static final class BindingHolder{
+    static final class BindingHolder {
 
         @NonNull
         final List<Element> viewBindings = new ArrayList<>();

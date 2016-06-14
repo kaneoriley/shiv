@@ -119,9 +119,22 @@ abstract class BaseProcessor extends AbstractProcessor {
         return hasAnnotationWithName(element, NULLABLE);
     }
 
+    protected boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull Class c) {
+        TypeMirror mirror = mElements.getTypeElement(c.getCanonicalName()).asType();
+        return mTypes.isAssignable(typeMirror, mirror);
+    }
+
     protected boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull String type) {
         TypeMirror mirror = mElements.getTypeElement(type).asType();
         return mTypes.isAssignable(typeMirror, mirror);
+    }
+
+    protected boolean isSubtypeOfType(@NonNull TypeElement element, @NonNull Class c) {
+        return isSubtypeOfType(element.asType(), c.getCanonicalName());
+    }
+
+    protected boolean isSubtypeOfType(@NonNull TypeMirror typeMirror, @NonNull Class c) {
+        return isSubtypeOfType(typeMirror, c.getCanonicalName());
     }
 
     protected boolean isSubtypeOfType(@NonNull TypeElement element, @NonNull String type) {

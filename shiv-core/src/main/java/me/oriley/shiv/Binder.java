@@ -25,6 +25,7 @@ public abstract class Binder {
 
     static final String CLASS_SUFFIX = "$$ShivBinder";
 
+
     public void bindViews(@NonNull final Object host) {
         // To be overridden
     }
