@@ -480,7 +480,7 @@ public final class ShivProcessor extends BaseProcessor {
             // as well as all parent classes
             TypeElement parentType = findEnclosingElement(type);
             while (parentType != null) {
-                if (!isPrivate(parentType)) {
+                if (isPrivate(parentType)) {
                     throw new ShivProcessorException("Parent class is private: " + parentType);
                 }
                 parentType = findEnclosingElement(parentType);
