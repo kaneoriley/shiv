@@ -48,6 +48,10 @@ public abstract class Binder {
         // To be overridden
     }
 
+    public void bindServices(@NonNull final Object host) {
+        // To be overridden
+    }
+
     public void saveInstance(@NonNull final Object host, @Nullable Bundle bundle) {
         // To be overridden
     }

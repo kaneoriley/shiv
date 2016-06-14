@@ -26,9 +26,9 @@ import java.io.Serializable;
 import java.util.ArrayList;
 
 @SuppressWarnings({"WeakerAccess", "unused"})
-public final class BinderUtils {
+public final class BundleUtils {
 
-    private BinderUtils() {
+    private BundleUtils() {
         throw new IllegalAccessError("no instances");
     }
 

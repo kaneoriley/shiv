@@ -92,6 +92,17 @@ public final class Shiv {
     }
 
     @SuppressWarnings("unused")
+    public static void bindServices(@NonNull Object object) {
+        Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
+        for (Class<?> type : registerTypes) {
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.bindServices(object);
+            }
+        }
+    }
+
+    @SuppressWarnings("unused")
     public static void saveInstance(@NonNull Object object, @Nullable Bundle bundle) {
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
@@ -252,6 +263,12 @@ public final class Shiv {
         @NonNull
         public FluentInterface unbindPreferences() {
             Shiv.unbindPreferences(mHost);
+            return this;
+        }
+
+        @NonNull
+        public FluentInterface bindServices() {
+            Shiv.bindServices(mHost);
             return this;
         }
 
