@@ -17,7 +17,6 @@
 package me.oriley.shiv;
 
 import android.os.Bundle;
-import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Log;
@@ -31,143 +30,95 @@ public final class Shiv {
     private static final boolean DEBUG = false;
 
     @NonNull
-    private static final Map<Class<?>, Set<Class<?>>> mFlattenHierarchyCache = new HashMap<>();
+    private static final Map<Class<?>, Set<Class<?>>> sFlattenHierarchyCache = new HashMap<>();
 
     @NonNull
-    private static final Map<Class<?>, Binder> mBinderCache = new HashMap<>();
+    private static final Map<Class<?>, Binder> sBinderCache = new HashMap<>();
 
 
     @SuppressWarnings("unused")
     public static void bindViews(@NonNull Object object) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            bindViews(object, type);
-        }
-    }
-
-    private static void bindViews(@NonNull Object object, @NonNull Class objectClass) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.bindViews(object);
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.bindViews(object);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void unbindViews(@NonNull Object object) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            unbindViews(object, type);
-        }
-    }
-
-    private static void unbindViews(@NonNull Object object, @NonNull Class objectClass) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.unbindViews(object);
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.unbindViews(object);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void bindPreferences(@NonNull Object object) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            bindPreferences(object, type);
-        }
-    }
-
-    private static void bindPreferences(@NonNull Object object, @NonNull Class objectClass) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.bindPreferences(object);
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.bindPreferences(object);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void unbindPreferences(@NonNull Object object) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            unbindPreferences(object, type);
-        }
-    }
-
-    private static void unbindPreferences(@NonNull Object object, @NonNull Class objectClass) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.unbindPreferences(object);
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.unbindPreferences(object);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void bindExtras(@NonNull Object object) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            bindExtras(object, type);
-        }
-    }
-
-    private static void bindExtras(@NonNull Object object, @NonNull Class objectClass) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.bindExtras(object);
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.bindExtras(object);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void saveInstance(@NonNull Object object, @Nullable Bundle bundle) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            saveInstance(object, type, bundle);
-        }
-    }
-
-    private static void saveInstance(@NonNull Object object, @NonNull Class objectClass, @Nullable Bundle bundle) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.saveInstance(object, bundle);
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.saveInstance(object, bundle);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void restoreInstance(@NonNull Object object, @Nullable Bundle bundle) {
-        enforceMainThread();
-
         Set<Class<?>> registerTypes = flattenHierarchy(object.getClass());
         for (Class<?> type : registerTypes) {
-            restoreInstance(object, type, bundle);
-        }
-    }
-
-    private static void restoreInstance(@NonNull Object object, @NonNull Class objectClass, @Nullable Bundle bundle) {
-        Binder binder = findBinderForClass(objectClass);
-        if (binder != null) {
-            binder.restoreInstance(object, bundle);
-        }
-    }
-
-    private static void enforceMainThread() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            throw new IllegalStateException("Binding must occur on the main thread: " + Looper.myLooper());
+            Binder binder = findBinderForClass(type);
+            if (binder != null) {
+                binder.restoreInstance(object, bundle);
+            }
         }
     }
 
     @NonNull
     private static Set<Class<?>> flattenHierarchy(@NonNull Class<?> concreteClass) {
-        Set<Class<?>> classes = mFlattenHierarchyCache.get(concreteClass);
+        Set<Class<?>> classes = sFlattenHierarchyCache.get(concreteClass);
         if (classes == null) {
             classes = getClassesFor(concreteClass);
-            mFlattenHierarchyCache.put(concreteClass, classes);
+            sFlattenHierarchyCache.put(concreteClass, classes);
         }
         return classes;
     }
@@ -201,7 +152,7 @@ public final class Shiv {
 
     @Nullable
     private static Binder findBinderForClass(@NonNull Class<?> cls) {
-        Binder binder = mBinderCache.get(cls);
+        Binder binder = sBinderCache.get(cls);
         if (binder != null) {
             log("Found cached Binder for %s.", cls);
             return binder;
@@ -218,7 +169,7 @@ public final class Shiv {
         }
 
         if (binder != null) {
-            mBinderCache.put(cls, binder);
+            sBinderCache.put(cls, binder);
         }
         return binder;
     }
@@ -233,59 +184,59 @@ public final class Shiv {
     }
 
     @NonNull
-    public static Chainer with(@NonNull Object host) {
-        return new Chainer(host);
+    public static FluentInterface with(@NonNull Object host) {
+        return new FluentInterface(host);
     }
 
-    public static final class Chainer {
+    public static final class FluentInterface {
 
         @NonNull
         private final Object mHost;
 
 
-        Chainer(@NonNull Object host) {
+        FluentInterface(@NonNull Object host) {
             mHost = host;
         }
 
 
         @NonNull
-        public Chainer bindViews() {
+        public FluentInterface bindViews() {
             Shiv.bindViews(mHost);
             return this;
         }
 
         @NonNull
-        public Chainer unbindViews() {
+        public FluentInterface unbindViews() {
             Shiv.unbindViews(mHost);
             return this;
         }
 
         @NonNull
-        public Chainer bindExtras() {
+        public FluentInterface bindExtras() {
             Shiv.bindExtras(mHost);
             return this;
         }
 
         @NonNull
-        public Chainer bindPreferences() {
+        public FluentInterface bindPreferences() {
             Shiv.bindPreferences(mHost);
             return this;
         }
 
         @NonNull
-        public Chainer unbindPreferences() {
+        public FluentInterface unbindPreferences() {
             Shiv.unbindPreferences(mHost);
             return this;
         }
 
         @NonNull
-        public Chainer saveInstance(@Nullable Bundle bundle) {
+        public FluentInterface saveInstance(@Nullable Bundle bundle) {
             Shiv.saveInstance(mHost, bundle);
             return this;
         }
 
         @NonNull
-        public Chainer restoreInstance(@Nullable Bundle bundle) {
+        public FluentInterface restoreInstance(@Nullable Bundle bundle) {
             Shiv.restoreInstance(mHost, bundle);
             return this;
         }
