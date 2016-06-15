@@ -18,6 +18,9 @@ allprojects {
     repositories {
         jcenter()
         mavenLocal()
+        maven {
+            url = 'https://github.com/oriley-me/android-dependency-jars/raw/master'
+        }
     }
 
     group = 'com.github.oriley-me.shiv'
