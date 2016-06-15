@@ -27,6 +27,4 @@ import java.lang.annotation.Target;
 public @interface BindService {
 
     boolean applicationContext() default true;
-
-    boolean optional() default false;
 }

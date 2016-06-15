@@ -26,6 +26,8 @@ import android.preference.Preference;
 import android.preference.PreferenceActivity;
 import android.preference.PreferenceFragment;
 import android.support.annotation.NonNull;
+import android.support.v4.app.FragmentActivity;
+import android.support.v7.preference.PreferenceFragmentCompat;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
@@ -46,13 +48,6 @@ import java.lang.annotation.Annotation;
 import java.util.*;
 
 public final class ShivProcessor extends BaseProcessor {
-
-    private static final String SUPPORT_PREFERENCE = "android.support.v7.preference.Preference";
-    private static final String SUPPORT_FRAGMENT = "android.support.v4.app.Fragment";
-    private static final String SUPPORT_PREFERENCE_FRAGMENT = "android.support.v7.preference.PreferenceFragmentCompat";
-    private static final String SUPPORT_FRAGMENT_ACTIVITY = "android.support.v4.app.FragmentActivity";
-
-    private static final ClassName SERVICE_UTILS_CLASSNAME = ClassName.get("me.oriley.shiv", "ServiceUtils");
 
     private static final ParameterizedTypeName NON_CONFIGURATION_MAP_TYPE =
             ParameterizedTypeName.get(Map.class, String.class, Object.class);
@@ -289,7 +284,7 @@ public final class ShivProcessor extends BaseProcessor {
             getViewGroup = ".getWindow().getDecorView().getRootView()";
         } else if (isSubtypeOfType(hostType, ViewGroup.class)) {
             getViewGroup = "";
-        } else if (isSubtypeOfType(hostType, Fragment.class) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT)) {
+        } else if (isSubtypeOfType(hostType, Fragment.class) || isSubtypeOfType(hostType, android.support.v4.app.Fragment.class)) {
             getViewGroup = ".getView().getRootView()";
         } else {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
@@ -360,7 +355,7 @@ public final class ShivProcessor extends BaseProcessor {
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
 
         if (!isSubtypeOfType(hostType, PreferenceActivity.class) && !isSubtypeOfType(hostType, PreferenceFragment.class) &&
-                !isSubtypeOfType(hostType, SUPPORT_PREFERENCE_FRAGMENT)) {
+                !isSubtypeOfType(hostType, PreferenceFragmentCompat.class)) {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
         }
 
@@ -401,7 +396,8 @@ public final class ShivProcessor extends BaseProcessor {
         if (isSubtypeOfType(hostType, Activity.class)) {
             builder.add("$T $N = $N.getIntent();\n", Intent.class, INTENT, FIELD_HOST);
             builder.add("$T $N = $N != null ? $N.getExtras() : null;\n", Bundle.class, BUNDLE, INTENT, INTENT);
-        } else if (isSubtypeOfType(hostType, Fragment.class) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT)) {
+        } else if (isSubtypeOfType(hostType, Fragment.class) ||
+                isSubtypeOfType(hostType, android.support.v4.app.Fragment.class)) {
             builder.add("$T $N = $N.getArguments();\n", Bundle.class, BUNDLE, FIELD_HOST);
         } else {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
@@ -439,7 +435,8 @@ public final class ShivProcessor extends BaseProcessor {
             getContext = "";
         } else if (isSubtypeOfType(hostType, View.class)) {
             getContext = ".getContext()";
-        } else if (isSubtypeOfType(hostType, Fragment.class) || isSubtypeOfType(hostType, SUPPORT_FRAGMENT)) {
+        } else if (isSubtypeOfType(hostType, Fragment.class) ||
+                isSubtypeOfType(hostType, android.support.v4.app.Fragment.class)) {
             getContext = ".getActivity()";
         } else {
             throw new ShivProcessorException("Unsupported class: " + hostType.getQualifiedName());
@@ -450,8 +447,13 @@ public final class ShivProcessor extends BaseProcessor {
 
         for (Element element : binderFields) {
             BindService bindService = element.getAnnotation(BindService.class);
-            builder.add("$N = $T.getService($N, $T.class);\n", EXTRA, SERVICE_UTILS_CLASSNAME,
-                    bindService.applicationContext() ? APPCONTEXT : CONTEXT, element.asType());
+            String serviceMethod = ServiceBindingUtils.getServiceMethod(element.asType());
+            if (serviceMethod == null) {
+                throw new ShivProcessorException("Unsupported service class: " + element.asType());
+            }
+
+            builder.add("$N = ($T) $N.$L;\n", EXTRA, element.asType(),
+                    bindService.applicationContext() ? APPCONTEXT : CONTEXT, serviceMethod);
             if (!isNullable(element)) {
                 builder.beginControlFlow("if ($N == null)", EXTRA)
                         .add("throw new $T(\"Non-optional field $T.$N was not found\");\n", NullPointerException.class,
@@ -567,7 +569,7 @@ public final class ShivProcessor extends BaseProcessor {
                 .add("$T $N = ($T) $N;\n", hostType, FIELD_HOST, hostType, OBJECT);
 
         String methodName;
-        if (isSubtypeOfType(hostType, SUPPORT_FRAGMENT_ACTIVITY)) {
+        if (isSubtypeOfType(hostType, FragmentActivity.class)) {
             methodName = "getLastCustomNonConfigurationInstance";
         } else if (isSubtypeOfType(hostType, Activity.class)) {
             methodName = "getLastNonConfigurationInstance";
@@ -630,14 +632,14 @@ public final class ShivProcessor extends BaseProcessor {
 
             if (annotation == BindView.class) {
                 if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
-                        !isSubtypeOfType(type, SUPPORT_FRAGMENT) && !isSubtypeOfType(type, ViewGroup.class)) {
+                        !isSubtypeOfType(type, android.support.v4.app.Fragment.class) && !isSubtypeOfType(type, ViewGroup.class)) {
                     throw new ShivProcessorException("Invalid view binding class: " + type.getSimpleName());
                 } else if (!isSubtypeOfType(fieldType, View.class)) {
                     throw new ShivProcessorException("Field must inherit from View type: " + e.getSimpleName());
                 }
             } else if (annotation == BindExtra.class) {
                 if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
-                        !isSubtypeOfType(type, SUPPORT_FRAGMENT)) {
+                        !isSubtypeOfType(type, android.support.v4.app.Fragment.class)) {
                     throw new ShivProcessorException("Invalid extra binding class: " + type.getSimpleName());
                 } else if (!isValidBundleEntry(fieldType)) {
                     throw new ShivProcessorException("Extra field not suitable for bundle: " + e.getSimpleName());
@@ -648,17 +650,18 @@ public final class ShivProcessor extends BaseProcessor {
                         throw new ShivProcessorException("Preferences in " + type.getQualifiedName() +
                                 " must inherit from " + Preference.class + ": " + e.getSimpleName());
                     }
-                } else if (isSubtypeOfType(type, SUPPORT_PREFERENCE_FRAGMENT)) {
-                    if (!isSubtypeOfType(fieldType, SUPPORT_PREFERENCE)) {
-                        throw new ShivProcessorException("Preferences in " + SUPPORT_PREFERENCE_FRAGMENT +
-                                " must inherit from " + SUPPORT_PREFERENCE + ": " + e.getSimpleName());
+                } else if (isSubtypeOfType(type, PreferenceFragmentCompat.class)) {
+                    if (!isSubtypeOfType(fieldType, android.support.v7.preference.Preference.class)) {
+                        throw new ShivProcessorException("Preferences in " + PreferenceFragmentCompat.class +
+                                " must inherit from " + android.support.v7.preference.Preference.class +
+                                ": " + e.getSimpleName());
                     }
                 } else {
                     throw new ShivProcessorException("Invalid preference binding class: " + type.getSimpleName());
                 }
             } else if (annotation == BindInstance.class) {
                 if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
-                        !isSubtypeOfType(type, SUPPORT_FRAGMENT)) {
+                        !isSubtypeOfType(type, android.support.v4.app.Fragment.class)) {
                     throw new ShivProcessorException("Invalid instance binding class: " + type.getSimpleName());
                 } else if (!isValidBundleEntry(fieldType)) {
                     throw new ShivProcessorException("Instance field not suitable for bundle: " + e.getSimpleName());
@@ -669,7 +672,8 @@ public final class ShivProcessor extends BaseProcessor {
                 }
             } else if (annotation == BindService.class) {
                 if (!isSubtypeOfType(type, Activity.class) && !isSubtypeOfType(type, Fragment.class) &&
-                        !isSubtypeOfType(type, SUPPORT_FRAGMENT) && !isSubtypeOfType(type, View.class)) {
+                        !isSubtypeOfType(type, android.support.v4.app.Fragment.class) &&
+                        !isSubtypeOfType(type, View.class)) {
                     throw new ShivProcessorException("Invalid service binding class: " + type.getSimpleName());
                 }
             } else {
