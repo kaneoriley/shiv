@@ -25,7 +25,7 @@ import java.util.Map;
 @SuppressWarnings({"WeakerAccess", "unused"})
 public abstract class Binder {
 
-    static final String CLASS_SUFFIX = "$$ShivBinder";
+    public static final String CLASS_SUFFIX = "$$ShivBinder";
 
 
     public void bindViews(@NonNull final Object host) {

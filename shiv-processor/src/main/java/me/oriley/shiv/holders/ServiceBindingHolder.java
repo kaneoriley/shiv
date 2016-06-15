@@ -1,7 +1,22 @@
-package me.oriley.shiv;
+/*
+ * Copyright (C) 2016 Kane O'Riley
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package me.oriley.shiv.holders;
 
 import android.accounts.AccountManager;
-import android.annotation.SuppressLint;
 import android.app.*;
 import android.app.admin.DevicePolicyManager;
 import android.app.job.JobScheduler;
@@ -44,18 +59,29 @@ import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.view.LayoutInflater;
+import android.view.View;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.CaptioningManager;
 import android.view.inputmethod.InputMethodManager;
 import android.view.textservice.TextServicesManager;
+import com.squareup.javapoet.*;
+import me.oriley.shiv.BindService;
+import me.oriley.shiv.ShivException;
+import me.oriley.shiv.ShivProcessor;
 
+import javax.lang.model.element.Element;
+import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeMirror;
+
 import java.util.HashMap;
 import java.util.Map;
 
-@SuppressLint("InlinedApi")
-final class ServiceBindingUtils {
+import static me.oriley.shiv.ProcessorUtils.isNullable;
+import static me.oriley.shiv.ProcessorUtils.isSubtypeOfType;
+
+final class ServiceBindingHolder extends AbstractBindingHolder {
 
     private static final Map<Class, String> SERVICE_MAP = new HashMap<>();
 
@@ -137,13 +163,78 @@ final class ServiceBindingUtils {
     }
 
 
-    private ServiceBindingUtils() {
-        throw new IllegalAccessError("no instances");
+    ServiceBindingHolder(@NonNull TypeElement hostType) {
+        super(hostType);
     }
 
 
+    @Override
+    void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
+        if (mElements.isEmpty()) {
+            // Nothing to bind
+            return;
+        }
+
+        // Type parameter
+        ParameterSpec param = ParameterSpec.builder(TypeName.get(Object.class)
+                .annotated(AnnotationSpec.builder(NonNull.class).build()), OBJECT, Modifier.FINAL)
+                .build();
+
+        // Create bindServices method
+        MethodSpec servicesMethod = MethodSpec.methodBuilder(BIND_SERVICES)
+                .addModifiers(Modifier.PUBLIC)
+                .addAnnotation(Override.class)
+                .addParameter(param)
+                .addCode(generateBindServicesMethod())
+                .build();
+
+        typeSpecBuilder.addMethod(servicesMethod);
+    }
+
+    @NonNull
+    private CodeBlock generateBindServicesMethod() throws ShivException {
+        CodeBlock.Builder builder = CodeBlock.builder()
+                .add("$T $N = ($T) $N;\n", mHostType, FIELD_HOST, mHostType, OBJECT)
+                .add("$T $N;\n", Object.class, EXTRA);
+
+        String getContext;
+        if (isSubtypeOfType(mHostType, Activity.class)) {
+            getContext = "";
+        } else if (isSubtypeOfType(mHostType, View.class)) {
+            getContext = ".getContext()";
+        } else if (isSubtypeOfType(mHostType, Fragment.class) ||
+                isSubtypeOfType(mHostType, android.support.v4.app.Fragment.class)) {
+            getContext = ".getActivity()";
+        } else {
+            throw new ShivException("Unsupported class: " + mHostType.getQualifiedName());
+        }
+
+        builder.add("$T $N = $N$L;\n", Context.class, CONTEXT, FIELD_HOST, getContext)
+                .add("$T $N = $N.getApplicationContext();\n", Context.class, APPCONTEXT, CONTEXT);
+
+        for (Element element : mElements) {
+            BindService bindService = element.getAnnotation(BindService.class);
+            String serviceMethod = getServiceMethod(element.asType());
+            if (serviceMethod == null) {
+                throw new ShivException("Unsupported service class: " + element.asType());
+            }
+
+            builder.add("$N = ($T) $N.$L;\n", EXTRA, element.asType(),
+                    bindService.applicationContext() ? APPCONTEXT : CONTEXT, serviceMethod);
+            if (!isNullable(element)) {
+                builder.beginControlFlow("if ($N == null)", EXTRA)
+                        .add("throw new $T(\"Non-optional field $T.$N was not found\");\n", NullPointerException.class,
+                                mHostType, element.getSimpleName())
+                        .endControlFlow();
+            }
+            builder.add("$N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA);
+        }
+
+        return builder.build();
+    }
+
     @Nullable
-    static String getServiceMethod(@NonNull TypeMirror typeMirror) {
+    private static String getServiceMethod(@NonNull TypeMirror typeMirror) {
         try {
             Class serviceClass = Class.forName(typeMirror.toString());
             if (serviceClass == PackageManager.class) {
