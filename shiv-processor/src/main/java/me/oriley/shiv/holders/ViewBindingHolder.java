@@ -39,6 +39,7 @@ final class ViewBindingHolder extends AbstractBindingHolder {
     private static final String UNBIND_VIEWS = "unbindViews";
     private static final String BOUND = "bound";
     private static final String VIEW = "view";
+    private static final String VIEW_GROUP = "viewGroup";
     private static final String VIEW_COUNT = "VIEW_COUNT";
 
 

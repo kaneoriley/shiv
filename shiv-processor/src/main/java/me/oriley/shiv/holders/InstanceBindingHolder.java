@@ -21,18 +21,21 @@ import android.os.Parcelable;
 import android.support.annotation.NonNull;
 import android.util.SparseArray;
 import com.squareup.javapoet.*;
-import me.oriley.shiv.BundleUtils;
-import me.oriley.shiv.ProcessorUtils;
 import me.oriley.shiv.ShivException;
 import me.oriley.shiv.ShivProcessor;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+
+import static me.oriley.shiv.ProcessorUtils.isSubtypeOfType;
 
 final class InstanceBindingHolder extends AbstractBindingHolder {
 
@@ -90,9 +93,8 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
 
         for (Element element : mElements) {
             String keyName = (KEY_INSTANCE_PREFIX + element.getSimpleName()).toUpperCase();
-            builder.add("$T.$N($N, $N, $N.$N);\n", BundleUtils.class,
-                    getPutMethodName(processor.erasedType(element.asType()), element), BUNDLE, keyName,
-                    FIELD_HOST, element.getSimpleName());
+            builder.add("$N.$N($N, $N.$N);\n", BUNDLE, getPutMethodName(processor, element),
+                    keyName, FIELD_HOST, element.getSimpleName());
         }
 
         return builder.build();
@@ -110,18 +112,80 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
             typeSpecBuilder.addField(FieldSpec.builder(String.class, keyName, Modifier.FINAL, Modifier.STATIC,
                     Modifier.PRIVATE).initializer("\"$N.$N\"", mHostType.getQualifiedName(), element.getSimpleName()).build());
 
-            builder.add("$N = $T.get($N, $N);\n", EXTRA, BundleUtils.class, BUNDLE, keyName)
-                    .add("if ($N != null) {\n", EXTRA)
-                    .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)
-                    .add("}\n");
+            builder.add("$N = $N.get($N);\n", EXTRA, BUNDLE, keyName)
+                    .beginControlFlow("if ($N != null)", EXTRA)
+                    .add("$N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)
+                    .endControlFlow();
         }
 
         return builder.build();
     }
 
     @NonNull
-    private String getPutMethodName(@NonNull String erasedType, @NonNull Element element) throws ShivException {
-        if (ArrayList.class.getCanonicalName().equals(erasedType)) {
+    private static String getPutMethodName(@NonNull ShivProcessor processor,
+                                           @NonNull Element element) throws ShivException {
+        TypeKind typeKind = element.asType().getKind();
+        String erasedName = processor.erasedType(element.asType());
+
+        if (typeKind.isPrimitive()) {
+            TypeMirror type = element.asType();
+            TypeKind kind = type.getKind();
+
+            if (kind == TypeKind.BOOLEAN) {
+                return "putBoolean";
+            } else if (kind == TypeKind.INT) {
+                return "putInt";
+            } else if (kind == TypeKind.FLOAT) {
+                return "putFloat";
+            } else if (kind == TypeKind.CHAR) {
+                return "putChar";
+            } else if (kind == TypeKind.DOUBLE) {
+                return "putDouble";
+            } else if (kind == TypeKind.SHORT) {
+                return "putShort";
+            } else if (kind == TypeKind.BYTE) {
+                return "putByte";
+            } else if (kind == TypeKind.LONG) {
+                return "putLong";
+            } else {
+                throw new ShivException("Invalid primitive type: " + type);
+            }
+        } else if (element.asType().getKind() == TypeKind.ARRAY) {
+            ArrayType arrayType = (ArrayType) element.asType();
+            TypeMirror componentType = arrayType.getComponentType();
+
+            if (componentType.getKind().isPrimitive()) {
+                TypeKind kind = componentType.getKind();
+
+                if (kind == TypeKind.BOOLEAN) {
+                    return "putBooleanArray";
+                } else if (kind == TypeKind.INT) {
+                    return "putIntArray";
+                } else if (kind == TypeKind.FLOAT) {
+                    return "putFloatArray";
+                } else if (kind == TypeKind.CHAR) {
+                    return "putCharArray";
+                } else if (kind == TypeKind.DOUBLE) {
+                    return "putDoubleArray";
+                } else if (kind == TypeKind.SHORT) {
+                    return "putShortArray";
+                } else if (kind == TypeKind.BYTE) {
+                    return "putByteArray";
+                } else if (kind == TypeKind.LONG) {
+                    return "putLongArray";
+                } else {
+                    throw new ShivException("Invalid primitive array type: " + arrayType);
+                }
+            } else if (processor.isAssignable(componentType, Parcelable.class)) {
+                return "putParcelableArray";
+            } else if (processor.isAssignable(componentType, CharSequence.class)) {
+                return "putCharSequenceArray";
+            } else if (processor.isAssignable(componentType, String.class)) {
+                return "putStringArray";
+            } else {
+                throw new ShivException("Invalid array type: " + element.asType());
+            }
+        } else if (ArrayList.class.getCanonicalName().equals(erasedName)) {
             DeclaredType declaredType = (DeclaredType) element.asType();
             List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
             if (typeArguments.size() != 1) {
@@ -129,18 +193,18 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
             }
             TypeMirror listType = typeArguments.get(0);
 
-            if (ProcessorUtils.isSubtypeOfType(listType, Parcelable.class)) {
+            if (isSubtypeOfType(listType, Parcelable.class)) {
                 return "putParcelableArrayList";
-            } else if (ProcessorUtils.isSubtypeOfType(listType, String.class)) {
+            } else if (isSubtypeOfType(listType, String.class)) {
                 return "putStringArrayList";
-            } else if (ProcessorUtils.isSubtypeOfType(listType, CharSequence.class)) {
+            } else if (isSubtypeOfType(listType, CharSequence.class)) {
                 return "putCharSequenceArrayList";
-            } else if (ProcessorUtils.isSubtypeOfType(listType, Integer.class)) {
+            } else if (isSubtypeOfType(listType, Integer.class)) {
                 return "putIntegerArrayList";
             } else {
                 throw new ShivException("Invalid array list type: " + listType);
             }
-        } else if (SparseArray.class.getCanonicalName().equals(erasedType)) {
+        } else if (SparseArray.class.getCanonicalName().equals(erasedName)) {
             DeclaredType declaredType = (DeclaredType) element.asType();
             List<? extends TypeMirror> typeArguments = declaredType.getTypeArguments();
             if (typeArguments.size() != 1) {
@@ -148,13 +212,25 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
             }
             TypeMirror sparseArrayType = typeArguments.get(0);
 
-            if (ProcessorUtils.isSubtypeOfType(sparseArrayType, Parcelable.class)) {
+            if (isSubtypeOfType(sparseArrayType, Parcelable.class)) {
                 return "putSparseParcelableArray";
             } else {
                 throw new ShivException("Invalid sparse array type: " + sparseArrayType);
             }
         } else {
-            return "put";
+            if (processor.isAssignable(element.asType(), CharSequence.class)) {
+                return "putCharSequence";
+            } else if (processor.isAssignable(element.asType(), Bundle.class)) {
+                return "putBundle";
+            } else if (processor.isAssignable(element.asType(), String.class)) {
+                return "putString";
+            } else if (processor.isAssignable(element.asType(), Parcelable.class)) {
+                return "putParcelable";
+            } else if (processor.isAssignable(element.asType(), Serializable.class)) {
+                return "putSerializable";
+            } else {
+                return "put";
+            }
         }
     }
 }

@@ -162,6 +162,10 @@ final class ServiceBindingHolder extends AbstractBindingHolder {
         SERVICE_MAP.put(WindowManager.class, Context.WINDOW_SERVICE);
     }
 
+    private static final String BIND_SERVICES = "bindServices";
+    private static final String APPCONTEXT = "appContext";
+    private static final String CONTEXT = "context";
+
 
     ServiceBindingHolder(@NonNull TypeElement hostType) {
         super(hostType);

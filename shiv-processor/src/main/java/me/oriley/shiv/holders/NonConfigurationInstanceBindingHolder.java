@@ -37,6 +37,7 @@ final class NonConfigurationInstanceBindingHolder extends AbstractBindingHolder 
 
     private static final String SAVE_NON_CONFIG_INSTANCE = "saveNonConfigurationInstance";
     private static final String RESTORE_NON_CONFIG_INSTANCE = "restoreNonConfigurationInstance";
+    private static final String MAP = "map";
 
 
     NonConfigurationInstanceBindingHolder(@NonNull TypeElement hostType) {

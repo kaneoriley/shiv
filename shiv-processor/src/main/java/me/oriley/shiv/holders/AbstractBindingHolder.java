@@ -28,14 +28,9 @@ import java.util.List;
 
 abstract class AbstractBindingHolder {
 
-    static final String BIND_SERVICES = "bindServices";
     static final String OBJECT = "object";
     static final String BUNDLE = "bundle";
-    static final String APPCONTEXT = "appContext";
-    static final String CONTEXT = "context";
-    static final String MAP = "map";
     static final String EXTRA = "extra";
-    static final String VIEW_GROUP = "viewGroup";
     static final String FIELD_HOST = "fieldHost";
     static final String KEY_INSTANCE_PREFIX = "SHIV_KEY_INSTANCE_";
 

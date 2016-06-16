@@ -188,7 +188,7 @@ public final class ShivProcessor extends BaseProcessor {
         }
     }
 
-    private boolean isValidBundleEntry(@NonNull TypeMirror fieldType) {
+    private boolean isValidBundleEntry(@NonNull TypeMirror fieldType) throws ShivException {
         return isAssignable(fieldType, CharSequence.class) || isAssignable(fieldType, Serializable.class) ||
                 isAssignable(fieldType, Parcelable.class) || SparseArray.class.getCanonicalName().equals(erasedType(fieldType)) ||
                 ArrayList.class.getCanonicalName().equals(erasedType(fieldType));

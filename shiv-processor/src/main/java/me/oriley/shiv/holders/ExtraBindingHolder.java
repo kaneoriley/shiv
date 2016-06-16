@@ -35,11 +35,21 @@ final class ExtraBindingHolder extends AbstractBindingHolder {
     private static final String BIND_EXTRAS = "bindExtras";
     private static final String INTENT = "intent";
 
+    private boolean mHasNonOptionalExtra;
+
 
     ExtraBindingHolder(@NonNull TypeElement hostType) {
         super(hostType);
     }
 
+
+    @Override
+    void addElement(@NonNull Element element) {
+        super.addElement(element);
+        if (!element.getAnnotation(BindExtra.class).optional()) {
+            mHasNonOptionalExtra = true;
+        }
+    }
 
     @Override
     void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
@@ -80,10 +90,19 @@ final class ExtraBindingHolder extends AbstractBindingHolder {
             throw new ShivException("Unsupported class: " + mHostType.getQualifiedName());
         }
 
+        builder.beginControlFlow("if ($N == null)", BUNDLE);
+        if (mHasNonOptionalExtra) {
+            builder.add("throw new $T(\"$T contains non-optional extra and bundle was null\");\n", IllegalStateException.class,
+                    mHostType);
+        } else {
+            builder.add("return;\n");
+        }
+        builder.endControlFlow();
+
         for (Element element : mElements) {
             BindExtra bindExtra = element.getAnnotation(BindExtra.class);
 
-            builder.add("$N = $T.get($N, $S);\n", EXTRA, BundleUtils.class, BUNDLE, bindExtra.value());
+            builder.add("$N = $N.get($S);\n", EXTRA, BUNDLE, bindExtra.value());
             if (isNullable(element) || bindExtra.optional()) {
                 builder.add("if ($N != null) {\n", EXTRA)
                         .add("    $N.$N = ($T) $N;\n", FIELD_HOST, element.getSimpleName(), element.asType(), EXTRA)

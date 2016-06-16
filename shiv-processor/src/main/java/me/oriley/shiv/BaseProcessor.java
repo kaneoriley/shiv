@@ -90,17 +90,24 @@ abstract class BaseProcessor extends AbstractProcessor {
         return type.getQualifiedName().toString().substring(packageLen).replace('.', '$');
     }
 
-    protected boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull Class c) {
-        TypeMirror mirror = mElements.getTypeElement(c.getCanonicalName()).asType();
-        return mTypes.isAssignable(typeMirror, mirror);
+    public boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull Class c) throws ShivException {
+        TypeElement typeElement = mElements.getTypeElement(c.getCanonicalName());
+        if (typeElement == null) {
+            throw new ShivException("Element %s could not be retrieved. Are you sure it's not primitive?");
+        }
+        return mTypes.isAssignable(typeMirror, typeElement.asType());
     }
 
-    protected boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull String type) {
+    public boolean isAssignable(@NonNull TypeMirror type1, @NonNull TypeMirror type2) {
+        return mTypes.isAssignable(type1, type2);
+    }
+
+    public boolean isAssignable(@NonNull TypeMirror typeMirror, @NonNull String type) {
         TypeMirror mirror = mElements.getTypeElement(type).asType();
         return mTypes.isAssignable(typeMirror, mirror);
     }
 
-    @NonNull
+    @Nullable
     public String erasedType(@NonNull TypeMirror type) {
         String name = mTypes.erasure(type).toString();
         int typeParamStart = name.indexOf('<');
