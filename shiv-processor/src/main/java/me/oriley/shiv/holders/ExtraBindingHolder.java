@@ -38,8 +38,8 @@ final class ExtraBindingHolder extends AbstractBindingHolder {
     private boolean mHasNonOptionalExtra;
 
 
-    ExtraBindingHolder(@NonNull TypeElement hostType) {
-        super(hostType);
+    ExtraBindingHolder(@NonNull ShivProcessor processor, @NonNull TypeElement hostType) {
+        super(processor, hostType);
     }
 
 
@@ -52,7 +52,7 @@ final class ExtraBindingHolder extends AbstractBindingHolder {
     }
 
     @Override
-    void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
+    void addBindingsToClass(@NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
         if (mElements.isEmpty()) {
             // Nothing to bind
             return;

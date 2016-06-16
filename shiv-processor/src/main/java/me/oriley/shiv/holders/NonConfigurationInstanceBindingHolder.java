@@ -26,6 +26,8 @@ import me.oriley.shiv.ShivProcessor;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static me.oriley.shiv.ProcessorUtils.isSubtypeOfType;
@@ -40,13 +42,19 @@ final class NonConfigurationInstanceBindingHolder extends AbstractBindingHolder 
     private static final String MAP = "map";
 
 
-    NonConfigurationInstanceBindingHolder(@NonNull TypeElement hostType) {
-        super(hostType);
+    NonConfigurationInstanceBindingHolder(@NonNull ShivProcessor processor, @NonNull TypeElement hostType) {
+        super(processor, hostType);
     }
 
 
+    @NonNull
     @Override
-    void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
+    List<String> getSuppressedWarnings() {
+        return mElements.size() > 0 ? Collections.singletonList(UNCHECKED) : Collections.emptyList();
+    }
+
+    @Override
+    void addBindingsToClass(@NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
         if (mElements.isEmpty()) {
             // Nothing to bind
             return;

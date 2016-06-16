@@ -180,7 +180,7 @@ public final class ShivProcessor extends BaseProcessor {
 
             BindingManager manager = bindings.get(type);
             if (manager == null) {
-                manager = new BindingManager(type);
+                manager = new BindingManager(this, type);
                 bindings.put(type, manager);
             }
 

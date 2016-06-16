@@ -24,6 +24,7 @@ import me.oriley.shiv.ShivProcessor;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 abstract class AbstractBindingHolder {
@@ -33,6 +34,7 @@ abstract class AbstractBindingHolder {
     static final String EXTRA = "extra";
     static final String FIELD_HOST = "fieldHost";
     static final String KEY_INSTANCE_PREFIX = "SHIV_KEY_INSTANCE_";
+    static final String UNCHECKED = "unchecked";
 
     @NonNull
     final List<Element> mElements = new ArrayList<>();
@@ -40,8 +42,13 @@ abstract class AbstractBindingHolder {
     @NonNull
     final TypeElement mHostType;
 
+    @NonNull
+    final ShivProcessor mProcessor;
 
-    AbstractBindingHolder(@NonNull TypeElement hostType) {
+
+    AbstractBindingHolder(@NonNull ShivProcessor processor,
+                          @NonNull TypeElement hostType) {
+        mProcessor = processor;
         mHostType = hostType;
     }
 
@@ -50,5 +57,10 @@ abstract class AbstractBindingHolder {
         mElements.add(element);
     }
 
-    abstract void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException;
+    abstract void addBindingsToClass(@NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException;
+
+    @NonNull
+    List<String> getSuppressedWarnings() {
+        return Collections.emptyList();
+    }
 }

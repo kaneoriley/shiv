@@ -38,13 +38,13 @@ final class PreferenceBindingHolder extends AbstractBindingHolder {
     private static final String UNBIND_PREFERENCES = "unbindPreferences";
 
 
-    PreferenceBindingHolder(@NonNull TypeElement hostType) {
-        super(hostType);
+    PreferenceBindingHolder(@NonNull ShivProcessor processor, @NonNull TypeElement hostType) {
+        super(processor, hostType);
     }
 
 
     @Override
-    void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
+    void addBindingsToClass(@NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
         if (mElements.isEmpty()) {
             // Nothing to bind
             return;

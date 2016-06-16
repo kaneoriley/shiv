@@ -33,6 +33,7 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static me.oriley.shiv.ProcessorUtils.isSubtypeOfType;
@@ -42,14 +43,33 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
     private static final String SAVE_INSTANCE = "saveInstance";
     private static final String RESTORE_INSTANCE = "restoreInstance";
 
+    private boolean mSuppressUnchecked;
 
-    InstanceBindingHolder(@NonNull TypeElement hostType) {
-        super(hostType);
+
+    InstanceBindingHolder(@NonNull ShivProcessor processor, @NonNull TypeElement hostType) {
+        super(processor, hostType);
     }
 
 
     @Override
-    void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
+    void addElement(@NonNull Element element) {
+        super.addElement(element);
+        String erasedName = mProcessor.erasedType(element.asType());
+
+        if (ArrayList.class.getCanonicalName().equals(erasedName) ||
+                SparseArray.class.getCanonicalName().equals(erasedName)) {
+            mSuppressUnchecked = true;
+        }
+    }
+
+    @NonNull
+    @Override
+    List<String> getSuppressedWarnings() {
+        return mSuppressUnchecked ? Collections.singletonList(UNCHECKED) : Collections.emptyList();
+    }
+
+    @Override
+    void addBindingsToClass(@NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
         if (mElements.isEmpty()) {
             // Nothing to bind
             return;
@@ -79,21 +99,21 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
                 .addAnnotation(Override.class)
                 .addParameter(param)
                 .addParameter(bundleParam)
-                .addCode(generateSaveInstanceMethod(processor))
+                .addCode(generateSaveInstanceMethod())
                 .build();
 
         typeSpecBuilder.addMethod(restoreMethod).addMethod(saveMethod);
     }
 
     @NonNull
-    private CodeBlock generateSaveInstanceMethod(@NonNull ShivProcessor processor) throws ShivException {
+    private CodeBlock generateSaveInstanceMethod() throws ShivException {
         CodeBlock.Builder builder = CodeBlock.builder()
                 .add("if ($N == null) return;\n", BUNDLE)
                 .add("$T $N = ($T) $N;\n", mHostType, FIELD_HOST, mHostType, OBJECT);
 
         for (Element element : mElements) {
             String keyName = (KEY_INSTANCE_PREFIX + element.getSimpleName()).toUpperCase();
-            builder.add("$N.$N($N, $N.$N);\n", BUNDLE, getPutMethodName(processor, element),
+            builder.add("$N.$N($N, $N.$N);\n", BUNDLE, getPutMethodName(element),
                     keyName, FIELD_HOST, element.getSimpleName());
         }
 
@@ -122,10 +142,9 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
     }
 
     @NonNull
-    private static String getPutMethodName(@NonNull ShivProcessor processor,
-                                           @NonNull Element element) throws ShivException {
+    private String getPutMethodName(@NonNull Element element) throws ShivException {
         TypeKind typeKind = element.asType().getKind();
-        String erasedName = processor.erasedType(element.asType());
+        String erasedName = mProcessor.erasedType(element.asType());
 
         if (typeKind.isPrimitive()) {
             TypeMirror type = element.asType();
@@ -176,11 +195,11 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
                 } else {
                     throw new ShivException("Invalid primitive array type: " + arrayType);
                 }
-            } else if (processor.isAssignable(componentType, Parcelable.class)) {
+            } else if (mProcessor.isAssignable(componentType, Parcelable.class)) {
                 return "putParcelableArray";
-            } else if (processor.isAssignable(componentType, CharSequence.class)) {
+            } else if (mProcessor.isAssignable(componentType, CharSequence.class)) {
                 return "putCharSequenceArray";
-            } else if (processor.isAssignable(componentType, String.class)) {
+            } else if (mProcessor.isAssignable(componentType, String.class)) {
                 return "putStringArray";
             } else {
                 throw new ShivException("Invalid array type: " + element.asType());
@@ -218,15 +237,15 @@ final class InstanceBindingHolder extends AbstractBindingHolder {
                 throw new ShivException("Invalid sparse array type: " + sparseArrayType);
             }
         } else {
-            if (processor.isAssignable(element.asType(), CharSequence.class)) {
+            if (mProcessor.isAssignable(element.asType(), CharSequence.class)) {
                 return "putCharSequence";
-            } else if (processor.isAssignable(element.asType(), Bundle.class)) {
+            } else if (mProcessor.isAssignable(element.asType(), Bundle.class)) {
                 return "putBundle";
-            } else if (processor.isAssignable(element.asType(), String.class)) {
+            } else if (mProcessor.isAssignable(element.asType(), String.class)) {
                 return "putString";
-            } else if (processor.isAssignable(element.asType(), Parcelable.class)) {
+            } else if (mProcessor.isAssignable(element.asType(), Parcelable.class)) {
                 return "putParcelable";
-            } else if (processor.isAssignable(element.asType(), Serializable.class)) {
+            } else if (mProcessor.isAssignable(element.asType(), Serializable.class)) {
                 return "putSerializable";
             } else {
                 return "put";

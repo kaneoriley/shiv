@@ -43,13 +43,13 @@ final class ViewBindingHolder extends AbstractBindingHolder {
     private static final String VIEW_COUNT = "VIEW_COUNT";
 
 
-    ViewBindingHolder(@NonNull TypeElement hostType) {
-        super(hostType);
+    ViewBindingHolder(@NonNull ShivProcessor processor, @NonNull TypeElement hostType) {
+        super(processor, hostType);
     }
 
 
     @Override
-    void addBindingsToClass(@NonNull ShivProcessor processor, @NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
+    void addBindingsToClass(@NonNull TypeSpec.Builder typeSpecBuilder) throws ShivException {
         if (mElements.isEmpty()) {
             // Nothing to bind
             return;
